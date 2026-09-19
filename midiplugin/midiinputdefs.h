@@ -32,6 +32,13 @@ constexpr auto VoiceCountSetting      = "MIDIInput/VoiceCount";
 constexpr auto DefaultGain            = 0.0;
 constexpr auto GainSetting            = "MIDIInput/Gain";
 
+constexpr auto DefaultReverbLevel     = 75.0;
+constexpr auto ReverbLevelSetting     = "MIDIInput/ReverbLevel";
+constexpr auto DefaultChorusLevel     = 50.0;
+constexpr auto ChorusLevelSetting     = "MIDIInput/ChorusLevel";
+constexpr auto DefaultEffectsEnabled  = true;
+constexpr auto EffectsEnabledSetting  = "MIDIInput/EffectsEnabled";
+
 constexpr auto DefaultLoopCount       = 2;
 constexpr auto LoopCountSetting       = "MIDIInput/LoopCount";
 constexpr auto DefaultFadeLength      = 4000;

@@ -1,6 +1,7 @@
 #include "SpessaPlayer.h"
 #include "spessasynth/sflist/sflist.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <stdlib.h>
 
@@ -112,6 +113,8 @@ SpessaPlayer::SpessaPlayer()
 	_synth = nullptr;
 	interp = SS_INTERP_LINEAR;
 	voiceCount = 512;
+	reverbLevel = 1.0;
+	chorusLevel = 1.0;
 	fileBankOffset = 0;
 
 	if(!g_initializer.initialize()) throw std::runtime_error("Unable to initialize SpessaSynth");
@@ -148,6 +151,15 @@ void SpessaPlayer::setVoiceCount(uint32_t polyphony) {
 	if(polyphony > 0) {
 		this->voiceCount = polyphony;
 		shutdown();
+	}
+}
+
+void SpessaPlayer::setEffectLevels(double reverb, double chorus) {
+	reverbLevel = std::clamp(reverb, 0.0, 5.0);
+	chorusLevel = std::clamp(chorus, 0.0, 5.0);
+	if(_synth) {
+		ss_processor_set_system_parameter(_synth, SS_GLOBAL_SYS_REVERB_GAIN, reverbLevel);
+		ss_processor_set_system_parameter(_synth, SS_GLOBAL_SYS_CHORUS_GAIN, chorusLevel);
 	}
 }
 
@@ -223,6 +235,8 @@ bool SpessaPlayer::startup() {
 	if(!_synth) {
 		return false;
 	}
+	ss_processor_set_system_parameter(_synth, SS_GLOBAL_SYS_REVERB_GAIN, reverbLevel);
+	ss_processor_set_system_parameter(_synth, SS_GLOBAL_SYS_CHORUS_GAIN, chorusLevel);
 
 	/* This bank will be owned by the synthesizer */
 	if(fileBankAsData && !ss_processor_load_soundbank(_synth, fileBankAsData, "fileBankAsData", fileBankOffset, false))

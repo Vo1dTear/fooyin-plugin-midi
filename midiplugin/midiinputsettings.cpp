@@ -45,6 +45,9 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     , m_voiceCount{new QSpinBox(this)}
     , m_interpolationFilter{new QComboBox(this)}
     , m_gain{new DoubleSliderEditor(tr("Gain"), this)}
+    , m_effectsEnabled{new QCheckBox(tr("Enable reverb and chorus"), this)}
+    , m_reverbLevel{new DoubleSliderEditor(tr("Reverb level"), this)}
+    , m_chorusLevel{new DoubleSliderEditor(tr("Chorus level"), this)}
     , m_soundfontLocation{new QLineEdit(this)}
     , m_soundfontGSLocation{new QLineEdit(this)}
 {
@@ -134,8 +137,22 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     m_gain->setSingleStep(0.1);
     m_gain->setSuffix(u" dB"_s);
 
+    m_reverbLevel->setRange(0.0, 500.0);
+    m_reverbLevel->setSingleStep(5.0);
+    m_reverbLevel->setSuffix(u" %"_s);
+    m_chorusLevel->setRange(0.0, 500.0);
+    m_chorusLevel->setSingleStep(5.0);
+    m_chorusLevel->setSuffix(u" %"_s);
+    QObject::connect(m_effectsEnabled, &QCheckBox::toggled,
+                     m_reverbLevel, &QWidget::setEnabled);
+    QObject::connect(m_effectsEnabled, &QCheckBox::toggled,
+                     m_chorusLevel, &QWidget::setEnabled);
+
     row = 0;
     synthesisLayout->addWidget(m_gain, row++, 0, 1, 5);
+    synthesisLayout->addWidget(m_effectsEnabled, row++, 0, 1, 5);
+    synthesisLayout->addWidget(m_reverbLevel, row++, 0, 1, 5);
+    synthesisLayout->addWidget(m_chorusLevel, row++, 0, 1, 5);
     synthesisLayout->addWidget(interpolationLabel, row, 0);
     synthesisLayout->addWidget(m_interpolationFilter, row++, 1, 1, 4);
     synthesisLayout->addWidget(voicesLabel, row, 0);
@@ -157,6 +174,11 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
         m_interpolationFilter->findData(m_settings.value(InterpolationSetting, DefaultInterpolation).toInt()));
     m_voiceCount->setValue(m_settings.value(VoiceCountSetting, DefaultVoiceCount).toInt());
     m_gain->setValue(m_settings.value(GainSetting, DefaultGain).toDouble());
+    m_effectsEnabled->setChecked(m_settings.value(EffectsEnabledSetting, DefaultEffectsEnabled).toBool());
+    m_reverbLevel->setEnabled(m_effectsEnabled->isChecked());
+    m_chorusLevel->setEnabled(m_effectsEnabled->isChecked());
+    m_reverbLevel->setValue(m_settings.value(ReverbLevelSetting, DefaultReverbLevel).toDouble());
+    m_chorusLevel->setValue(m_settings.value(ChorusLevelSetting, DefaultChorusLevel).toDouble());
     m_soundfontLocation->setText(m_settings.value(SoundfontPathSetting).toString());
     m_soundfontGSLocation->setText(m_settings.value(SoundfontGSPathSetting).toString());
 }
@@ -168,6 +190,9 @@ void MIDIInputSettings::accept()
     m_settings.setValue(InterpolationSetting, m_interpolationFilter->currentData().toInt());
     m_settings.setValue(VoiceCountSetting, m_voiceCount->value());
     m_settings.setValue(GainSetting, m_gain->value());
+    m_settings.setValue(EffectsEnabledSetting, m_effectsEnabled->isChecked());
+    m_settings.setValue(ReverbLevelSetting, m_reverbLevel->value());
+    m_settings.setValue(ChorusLevelSetting, m_chorusLevel->value());
     m_settings.setValue(SoundfontPathSetting, m_soundfontLocation->text());
     m_settings.setValue(SoundfontGSPathSetting, m_soundfontGSLocation->text());
 
@@ -182,6 +207,9 @@ void MIDIInputSettings::reset()
         m_interpolationFilter->findData(DefaultInterpolation));
     m_voiceCount->setValue(DefaultVoiceCount);
     m_gain->setValue(DefaultGain);
+    m_effectsEnabled->setChecked(DefaultEffectsEnabled);
+    m_reverbLevel->setValue(DefaultReverbLevel);
+    m_chorusLevel->setValue(DefaultChorusLevel);
     m_soundfontLocation->clear();
     m_soundfontGSLocation->clear();
 }

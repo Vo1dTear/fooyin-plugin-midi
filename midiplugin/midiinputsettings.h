@@ -53,6 +53,9 @@ private:
     QSpinBox* m_voiceCount;
     QComboBox* m_interpolationFilter;
     Fooyin::DoubleSliderEditor* m_gain;
+    QCheckBox* m_effectsEnabled;
+    Fooyin::DoubleSliderEditor* m_reverbLevel;
+    Fooyin::DoubleSliderEditor* m_chorusLevel;
     QLineEdit* m_soundfontLocation;
     QLineEdit* m_soundfontGSLocation;
 };

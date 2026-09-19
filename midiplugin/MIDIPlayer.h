@@ -156,6 +156,7 @@ class MIDIPlayer {
 
 	bool buildSequencer();
 	void teardownSequencer();
+	void applyDefaultEffectSends();
 
 	void dispatchFilterReset(size_t port, uint32_t sample_offset);
 	void inject(std::vector<uint8_t> bytes, double timestamp);

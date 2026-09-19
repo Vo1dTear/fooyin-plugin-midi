@@ -94,6 +94,8 @@ The exact plugin directory can vary by fooyin installation. Use the system-wide 
 * Embedded sound banks in RMID files
 * Configurable interpolation and polyphony
 * Configurable gain from -12 dB to +12 dB
+* Configurable reverb and chorus levels (0% to 500%)
+* A default-on switch to enable or disable both reverb and chorus
 * Configurable loop count and fade length
 * Support for fooyin's `Repeat track` option without fading between repetitions
 

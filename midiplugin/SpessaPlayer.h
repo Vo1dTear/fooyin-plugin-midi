@@ -18,6 +18,7 @@ class SpessaPlayer : public MIDIPlayer {
 
 	void setInterpolation(SS_InterpolationType interp);
 	void setVoiceCount(uint32_t polyphony);
+	void setEffectLevels(double reverb, double chorus);
 
 	protected:
 	virtual SS_Processor *getProcessor() {
@@ -47,6 +48,8 @@ class SpessaPlayer : public MIDIPlayer {
 
 	SS_InterpolationType interp;
 	uint32_t voiceCount;
+	double reverbLevel;
+	double chorusLevel;
 };
 
 #endif

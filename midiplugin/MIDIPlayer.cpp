@@ -257,6 +257,9 @@ bool MIDIPlayer::buildSequencer() {
 		sequencer = ss_sequencer_create_callbacks(&cb);
 	}
 	if(!sequencer) return false;
+	/* Preserve the MIDI's initial silence so playback and seeks use the
+	 * same timeline as the file duration. */
+	ss_sequencer_set_skip_to_first_note_on(sequencer, false);
 
 	if(!ss_sequencer_load_midi(sequencer, midi_file)) {
 		ss_sequencer_free(sequencer);
@@ -288,6 +291,7 @@ bool MIDIPlayer::buildSequencer() {
 	/* Seek to subsong start time, if any (format-2). */
 	if(subsong_start_seconds > 0.0)
 		ss_sequencer_set_time(sequencer, subsong_start_seconds);
+	applyDefaultEffectSends();
 
 	ss_sequencer_play(sequencer);
 	master_volume = 1.0f;
@@ -300,6 +304,54 @@ void MIDIPlayer::teardownSequencer() {
 		ss_sequencer_set_synthesizer(sequencer, getProcessor());
 		ss_sequencer_free(sequencer);
 		sequencer = nullptr;
+	}
+}
+
+void MIDIPlayer::applyDefaultEffectSends() {
+	SS_Processor *proc = getProcessor();
+	if(!proc || !midi_file || !sequencer || sequencer->current_song_index >= sequencer->song_count)
+		return;
+
+	/* Supply modest effect sends when the MIDI file has not established its
+	 * own CC91/CC93 values. Explicit values, including zero, take priority.
+	 * The sequencer resets controller state on seeks, so restore the missing
+	 * sends after it reconstructs the state there as well. */
+	constexpr int defaultReverbSend = 28;
+	constexpr int defaultChorusSend = 20;
+	const size_t eventCount = std::min(sequencer->songs[sequencer->current_song_index].event_index,
+	                                   midi_file->timeline_count);
+	std::vector<bool> hasReverbSend(static_cast<size_t>(proc->channel_count), false);
+	std::vector<bool> hasChorusSend(static_cast<size_t>(proc->channel_count), false);
+	for(size_t i = 0; i < eventCount; ++i) {
+		const SS_MIDIMessage &event = midi_file->timeline[i];
+		if((event.status_byte & 0xF0) != 0xB0 || event.data_length < 2 ||
+		   (event.data[0] != SS_MIDCON_REVERB_DEPTH && event.data[0] != SS_MIDCON_CHORUS_DEPTH))
+			continue;
+
+		int channel = event.status_byte & 0x0F;
+		if(midi_file->is_multi_port && midi_file->port_channel_offset_map &&
+		   event.track_index < midi_file->track_count) {
+			const int port = midi_file->tracks[event.track_index].port;
+			if(port >= 0 && static_cast<size_t>(port) < midi_file->port_channel_offset_map_count)
+				channel += midi_file->port_channel_offset_map[port];
+		}
+		if(channel >= 0 && channel < proc->channel_count) {
+			if(event.data[0] == SS_MIDCON_REVERB_DEPTH)
+				hasReverbSend[static_cast<size_t>(channel)] = true;
+			else
+				hasChorusSend[static_cast<size_t>(channel)] = true;
+		}
+	}
+
+	for(int channel = 0; channel < proc->channel_count; ++channel) {
+		if(!proc->midi_channels[channel])
+			continue;
+		if(!hasReverbSend[static_cast<size_t>(channel)])
+			ss_channel_controller(proc->midi_channels[channel], SS_MIDCON_REVERB_DEPTH,
+			                      defaultReverbSend, proc->current_time);
+		if(!hasChorusSend[static_cast<size_t>(channel)])
+			ss_channel_controller(proc->midi_channels[channel], SS_MIDCON_CHORUS_DEPTH,
+			                      defaultChorusSend, proc->current_time);
 	}
 }
 
@@ -567,6 +619,16 @@ void MIDIPlayer::Seek(unsigned long sample) {
 
 	target_seconds += subsong_start_seconds;
 
+	/* set_time clears its active-port mask before sending All Notes Off.
+	 * Silence the processor's existing voices first so notes from the old
+	 * position cannot continue playing after the seek. */
+	if(SS_Processor *proc = getProcessor()) {
+		for(int ch = 0; ch < proc->channel_count; ++ch) {
+			if(proc->midi_channels[ch])
+				ss_channel_all_sound_off(proc->midi_channels[ch]);
+		}
+	}
+
 	/* For callback-mode backends, reset the synthesizer state before
 	 * replaying filler events, so we don't leave stuck notes.  Processor-
 	 * mode Seek is handled internally by ss_sequencer_set_time. */
@@ -582,6 +644,7 @@ void MIDIPlayer::Seek(unsigned long sample) {
 	}
 
 	ss_sequencer_set_time(sequencer, target_seconds);
+	applyDefaultEffectSends();
 
 	/* For callback mode, set_time dispatched non-note filler events via
 	 * callback.  Replay them to the backend now so state is correct. */

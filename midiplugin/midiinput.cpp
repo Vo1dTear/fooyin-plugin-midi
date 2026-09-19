@@ -143,6 +143,17 @@ void configurePlayer(SpessaPlayer* player, QString fileBank, bool is_gs)
     player->setInterpolation(interp);
     player->setVoiceCount(polyphony);
     player->setGainDb(gain);
+    if(setting.value(EffectsEnabledSetting, DefaultEffectsEnabled).toBool())
+    {
+        player->setEffectLevels(
+            setting.value(ReverbLevelSetting, DefaultReverbLevel).toDouble() / 100.0,
+            setting.value(ChorusLevelSetting, DefaultChorusLevel).toDouble() / 100.0
+        );
+    }
+    else
+    {
+        player->setEffectLevels(0.0, 0.0);
+    }
 }
 } // namespace
 
