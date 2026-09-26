@@ -20,7 +20,14 @@
 #include "midiinputplugin.h"
 
 #include "midiinput.h"
+#include "midiinputdefs.h"
+#ifdef MIDI_ENABLE_NUKED_SC55
+#include "NukedSC55Player.h"
+#endif
 #include "midiinputsettings.h"
+#ifdef MIDI_ENABLE_EXTERNAL
+#include "ExternalMIDIController.h"
+#endif
 
 using namespace Qt::StringLiterals;
 
@@ -35,6 +42,27 @@ public:
     }
 };
 } // namespace
+
+void MIDIInputPlugin::initialise(const Fooyin::CorePluginContext& context) {
+#ifdef MIDI_ENABLE_NUKED_SC55
+    const FySettings settings;
+    NukedSC55Player::setPersistenceEnabled(settings.value(EngineSetting, DefaultEngine).toInt() == NukedEngine);
+#endif
+#ifdef MIDI_ENABLE_EXTERNAL
+    delete externalController;
+    externalController = new ExternalMIDIController(context, this);
+#else
+    Q_UNUSED(context)
+#endif
+}
+
+void MIDIInputPlugin::shutdown() {
+#ifdef MIDI_ENABLE_NUKED_SC55
+    NukedSC55Player::setPersistenceEnabled(false);
+#endif
+    delete externalController;
+    externalController = nullptr;
+}
 
 QString MIDIInputPlugin::inputName() const
 {

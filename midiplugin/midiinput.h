@@ -31,6 +31,13 @@ class MIDIDecoder : public Fooyin::AudioDecoder
 {
 public:
     MIDIDecoder();
+    ~MIDIDecoder() override;
+#ifdef MIDI_ENABLE_EXTERNAL
+    bool enableExternalOutput();
+    void silenceExternalOutput();
+    void setExternalVolume(double volume);
+    bool externalOutputFailed();
+#endif
 
     [[nodiscard]] QStringList extensions() const override;
     [[nodiscard]] bool isSeekable() const override;
@@ -51,7 +58,6 @@ private:
     Fooyin::AudioFormat m_format;
     int m_subsong;
     SS_MIDIFile* m_midiFile;
-    SpessaPlayer* spessaplayer;
     MIDIPlayer* m_midiPlayer;
     Fooyin::Track m_changedTrack;
     bool m_isDecoding;

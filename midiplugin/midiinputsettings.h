@@ -48,6 +48,10 @@ private:
     void reset();
 
     FySettings m_settings;
+    QComboBox* m_engine;
+    QComboBox* m_externalPort;
+    QLineEdit* m_romLocation;
+    QComboBox* m_romSet;
     QSpinBox* m_loopCount;
     QSpinBox* m_fadeLength;
     QSpinBox* m_voiceCount;

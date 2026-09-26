@@ -25,6 +25,14 @@
 #include <QRegularExpression>
 
 #include "SpessaPlayer.h"
+#ifdef MIDI_ENABLE_NUKED_SC55
+#include "NukedSC55Player.h"
+#endif
+#include <memory>
+#ifdef MIDI_ENABLE_EXTERNAL
+#include "ExternalMIDIPlayer.h"
+#include "ExternalMIDIPort.h"
+#endif
 
 #include <QLoggingCategory>
 
@@ -169,6 +177,37 @@ MIDIDecoder::MIDIDecoder()
     m_isDecoding = false;
 }
 
+MIDIDecoder::~MIDIDecoder() { stop(); }
+
+#ifdef MIDI_ENABLE_EXTERNAL
+bool MIDIDecoder::enableExternalOutput() {
+    auto* external = dynamic_cast<ExternalMIDIPlayer*>(m_midiPlayer);
+    if(!external) return false;
+    try {
+        if(external->enableOutput(ExternalMIDI::open(
+                m_settings.value(ExternalPortSetting, ExternalMIDI::VirtualPort).toString().toStdString())))
+            return true;
+        std::string error;
+        external->GetLastError(error);
+        qCWarning(MIDI_INPUT) << QString::fromStdString(error);
+    } catch(const std::exception& e) { qCWarning(MIDI_INPUT) << e.what(); }
+    return false;
+}
+
+bool MIDIDecoder::externalOutputFailed() {
+    std::string error;
+    return m_midiPlayer && m_midiPlayer->GetLastError(error);
+}
+
+void MIDIDecoder::setExternalVolume(double volume) {
+    if(auto* external = dynamic_cast<ExternalMIDIPlayer*>(m_midiPlayer)) external->setOutputVolume(volume);
+}
+
+void MIDIDecoder::silenceExternalOutput() {
+    if(auto* external = dynamic_cast<ExternalMIDIPlayer*>(m_midiPlayer)) external->silence();
+}
+#endif
+
 QStringList MIDIDecoder::extensions() const
 {
     return fileExtensions();
@@ -194,6 +233,8 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
     const Fooyin::Track& track,
     DecoderOptions options)
 {
+    stop();
+    m_format.setSampleRate(SampleRate);
     m_options = options;
     
     const QByteArray data = source.device->readAll();
@@ -234,16 +275,42 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
         return {};
     }
     
-    spessaplayer = new SpessaPlayer;
-    
-    configurePlayer(
-        spessaplayer,
-        findFilebank(track.filepath()),
-                    ss_midi_has_gs(m_midiFile)
-    );
-    
-    m_midiPlayer = spessaplayer;
-    
+    SpessaPlayer* spessaplayer = nullptr;
+    if(m_settings.value(EngineSetting, DefaultEngine).toInt() == ExternalEngine) {
+#ifdef MIDI_ENABLE_EXTERNAL
+        m_midiPlayer = new ExternalMIDIPlayer;
+        m_midiPlayer->setSampleRate(SampleRate);
+#else
+        qCWarning(MIDI_INPUT) << "External MIDI support was disabled at build time";
+        stop();
+        return {};
+#endif
+    } else if(m_settings.value(EngineSetting, DefaultEngine).toInt() == NukedEngine) {
+#ifdef MIDI_ENABLE_NUKED_SC55
+        auto player = std::make_unique<NukedSC55Player>();
+        if(!player->prepare(m_settings.value(NukedRomPathSetting).toString().toStdString(),
+                            m_settings.value(NukedRomSetSetting, DefaultNukedRomSet).toString().toStdString())) {
+            std::string error;
+            player->GetLastError(error);
+            qCWarning(MIDI_INPUT) << QString::fromStdString(error);
+            stop();
+            return {};
+        }
+        m_format.setSampleRate(player->sampleRate());
+        player->setGainDb(m_settings.value(GainSetting, DefaultGain).toDouble());
+        m_midiPlayer = player.release();
+#else
+        qCWarning(MIDI_INPUT) << "Nuked-SC55 support was disabled at build time";
+        stop();
+        return {};
+#endif
+    } else {
+        spessaplayer = new SpessaPlayer;
+        configurePlayer(spessaplayer, findFilebank(track.filepath()), ss_midi_has_gs(m_midiFile));
+        m_midiPlayer = spessaplayer;
+    }
+    const auto sampleRate = m_format.sampleRate();
+
     int loopCount =
     m_settings.value(
         LoopCountSetting,
@@ -264,7 +331,7 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
         loopCount = DefaultLoopCount;
     }
     
-    if(track.isInArchive() && source.archiveReader) {
+    if(spessaplayer && track.isInArchive() && source.archiveReader) {
         const QFileInfo fileInfo{track.pathInArchive()};
         
         bool found = false;
@@ -428,7 +495,7 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
     framesRead = 0;
     
     framesLength =
-    round(framesLength * SampleRate);
+    round(framesLength * sampleRate);
     
     totalFrames =
     framesLength;
@@ -439,7 +506,8 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
     MIDIPlayer::loop_mode_force
     : 0;
 
-    const double playbackFade = repeatTrack ? 0.0 : framesFade;
+    const bool external = m_settings.value(EngineSetting, DefaultEngine).toInt() == ExternalEngine;
+    const double playbackFade = (repeatTrack || external) ? 0.0 : framesFade;
 
     m_midiPlayer->setLoopCount(
         isLooped
@@ -454,7 +522,7 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
                         playbackFade,
                         loopStart,
                         loopEnd,
-                        framesLength / SampleRate
+                        framesLength / sampleRate
     )) {
         return {};
     }
@@ -478,6 +546,25 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
         false
     );
     
+#ifdef MIDI_ENABLE_EXTERNAL
+    if(m_settings.value(EngineSetting, DefaultEngine).toInt() == ExternalEngine) {
+        m_changedTrack = track;
+        m_changedTrack.setDuration(static_cast<uint64_t>(std::llround(framesLength * 1000.0 / sampleRate))
+                                   + ExternalMIDIPlayer::StartupMilliseconds);
+    }
+#endif
+
+    // Boot the emulated hardware while opening the track, not inside the
+    // first readBuffer() after the output has started consuming audio.
+    if(m_settings.value(EngineSetting, DefaultEngine).toInt() == NukedEngine &&
+       !m_midiPlayer->PreparePlayback()) {
+        std::string error;
+        m_midiPlayer->GetLastError(error);
+        qCWarning(MIDI_INPUT) << "Could not prepare Nuked-SC55:" << QString::fromStdString(error);
+        stop();
+        return {};
+    }
+
     return m_format;
 }
  
@@ -524,7 +611,12 @@ Fooyin::AudioBuffer MIDIDecoder::readBuffer(size_t bytes)
         const int bufferPos     = m_format.bytesForFrames(framesWritten);
         float* framesOut = (float *)(buffer.data() + bufferPos);
         unsigned long framesRendered = m_midiPlayer->Play(framesOut, framesToWrite);
-        if(!framesRendered) break;
+        if(!framesRendered) {
+            std::string error;
+            if(m_midiPlayer->GetLastError(error))
+                qCWarning(MIDI_INPUT) << QString::fromStdString(error);
+            break;
+        }
         framesWritten += framesRendered;
     }
     framesRead += framesWritten;
@@ -630,7 +722,13 @@ bool MIDIReader::readTrack(const Fooyin::AudioSource& source, Fooyin::Track& tra
         static_cast<uint64_t>(totalFrames)
     );
     
-    track.setSampleRate(SampleRate);
+    int sampleRate = SampleRate;
+#ifdef MIDI_ENABLE_NUKED_SC55
+    const FySettings settings;
+    if(settings.value(EngineSetting, DefaultEngine).toInt() == NukedEngine)
+        sampleRate = settings.value(NukedRomSetSetting, DefaultNukedRomSet).toString() == u"mk1"_s ? 64000 : 66207;
+#endif
+    track.setSampleRate(sampleRate);
     track.setBitDepth(32);
     track.setChannels(2);
     track.setEncoding(u"Synthesized"_s);

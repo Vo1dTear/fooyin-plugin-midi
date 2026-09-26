@@ -20,6 +20,15 @@
 #pragma once
 
 namespace Fooyin::MIDIInput {
+constexpr auto EngineSetting = "MIDIInput/Engine";
+constexpr auto DefaultEngine = 0; // SpessaSynth
+constexpr auto NukedEngine = 1;
+constexpr auto ExternalEngine = 2;
+constexpr auto ExternalPortSetting = "MIDIInput/ExternalPort";
+constexpr auto NukedRomPathSetting = "MIDIInput/NukedRomPath";
+constexpr auto NukedRomSetSetting = "MIDIInput/NukedRomSet";
+constexpr auto DefaultNukedRomSet = "mk2";
+
 constexpr auto SoundfontPathSetting   = "MIDIInput/SoundfontPath";
 constexpr auto SoundfontGSPathSetting = "MIDIInput/SoundfontGSPath";
 

@@ -1,0 +1,3 @@
+[submodule "external/Nuked-SC55"]
+	path = 3rdparty/Nuked-SC55
+	url = https://github.com/jcmoyer/Nuked-SC55.git

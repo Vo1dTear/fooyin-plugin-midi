@@ -141,10 +141,14 @@ void MIDIPlayer::setFilterMode(filter_mode m, bool disable_rc) {
 static unsigned derive_port_mask(const SS_MIDIFile *midi) {
 	unsigned mask = 1u;
 	if(!midi) return mask;
+	if(!midi->is_multi_port || !midi->port_channel_offset_map) return mask;
 	for(size_t ti = 0; ti < midi->track_count; ++ti) {
-		int p = midi->tracks[ti].port;
-		if(p >= 0 && p < 32)
-			mask |= (1u << p);
+		const int source_port = midi->tracks[ti].port;
+		if(source_port < 0 || static_cast<size_t>(source_port) >= midi->port_channel_offset_map_count)
+			continue;
+		// SS_Sequencer routes through effective channel offsets, not the raw SMF port IDs.
+		const int port = midi->port_channel_offset_map[source_port] / 16;
+		if(port >= 0 && port < 16) mask |= (1u << port);
 	}
 	return mask;
 }
@@ -238,6 +242,20 @@ bool MIDIPlayer::Load(
 	return true;
 }
 
+bool MIDIPlayer::PreparePlayback() {
+	return buildSequencer() && initialized;
+}
+
+bool MIDIPlayer::restartPlayback() {
+	// Recreate the event cursor, rather than seeking through tick-zero events.
+	teardownSequencer();
+	shutdown();
+	samples_rendered = 0;
+	fading = false;
+	fade_start_sample = 0;
+	return PreparePlayback();
+}
+
 bool MIDIPlayer::buildSequencer() {
 	if(sequencer) return true;
 	if(!midi_file) return false;
@@ -294,11 +312,17 @@ bool MIDIPlayer::buildSequencer() {
 	applyDefaultEffectSends();
 
 	ss_sequencer_play(sequencer);
+	if(!proc && subsong_start_seconds > 0.0) {
+		dispatchPendingEvents(0.0, 1);
+		finishSeek();
+	}
 	master_volume = 1.0f;
-	return true;
+	return prepareInitialPlayback();
 }
 
 void MIDIPlayer::teardownSequencer() {
+	pending_events.clear();
+	current_port = 0;
 	if(sequencer) {
 		/* Clear the processor if necessary */
 		ss_sequencer_set_synthesizer(sequencer, getProcessor());
@@ -424,7 +448,7 @@ void MIDIPlayer::dispatchFilterReset(size_t port, uint32_t sample_offset) {
 
 	/* Time at the start of the current block; events landing at this time
 	 * will be dispatched with sample offset 0 (or whatever we pass). */
-	double base_time = sequencer ? ss_sequencer_get_time(sequencer) : 0.0;
+	double base_time = sequencer ? sequencer->base_time + ss_sequencer_get_time(sequencer) : 0.0;
 	(void)sample_offset;
 
 	/* All filter mode resets begin with the general resets. */
@@ -494,11 +518,26 @@ void MIDIPlayer::sysex_reset(size_t port, uint32_t sample_offset) {
 	dispatchFilterReset(port, sample_offset);
 }
 
+void MIDIPlayer::dispatchPendingEvents(double block_start, uint32_t chunk) {
+    for(const auto& event : pending_events) {
+        if(event.data.empty()) continue;
+        if(event.data[0] == 0xF5 && event.data.size() >= 2) {
+            current_port = event.data[1] ? unsigned(event.data[1] - 1) : 0;
+            continue;
+        }
+        const auto offset = std::clamp<long>(
+            std::lround((event.timestamp - block_start) * dSampleRate), 0, chunk - 1);
+        dispatchMidi(event.data.data(), event.data.size(), uint32_t(offset), current_port);
+    }
+    pending_events.clear();
+}
+
 /* ── Play ────────────────────────────────────────────────────────────────── */
 
 unsigned long MIDIPlayer::Play(float *out, unsigned long count) {
 	if(!midi_file) return 0;
 	if(!sequencer && !buildSequencer()) return 0;
+	if(!initialized) return 0;
 	if(!(loop_mode_flags & loop_mode_enable) &&
 		(samples_rendered >= samples_total || ss_sequencer_is_finished(sequencer)))
 		return 0;
@@ -512,32 +551,15 @@ unsigned long MIDIPlayer::Play(float *out, unsigned long count) {
 		if(chunk > (uint32_t)(count - done)) chunk = (uint32_t)(count - done);
 		if(chunk == 0) break;
 
-		pending_events.clear();
-
-		double block_start = ss_sequencer_get_time(sequencer);
+		double block_start = sequencer->base_time + ss_sequencer_get_time(sequencer);
 		ss_sequencer_tick(sequencer, chunk);
 
-		/* For callback-mode, dispatch queued events to backend with sample
-		 * offsets within this chunk.  Track the current port from 0xF5. */
-		if(!has_processor) {
-			unsigned current_port = 0;
-			for(auto &e : pending_events) {
-				if(e.data.empty()) continue;
-				double offset_seconds = e.timestamp - block_start;
-				if(offset_seconds < 0.0) offset_seconds = 0.0;
-				long offset = std::lround(offset_seconds * dSampleRate);
-				if(offset < 0) offset = 0;
-				if(offset >= (long)chunk) offset = (long)chunk - 1;
-
-				if(e.data[0] == 0xF5 && e.data.size() >= 2) {
-					current_port = e.data[1] ? (unsigned)(e.data[1] - 1) : 0u;
-					continue;
-				}
-				dispatchMidi(e.data.data(), e.data.size(), (uint32_t)offset, current_port);
-			}
-		}
+		if(!has_processor)
+			dispatchPendingEvents(block_start, chunk);
+		pending_events.clear();
 		
 		renderChunk(out + done * 2, chunk);
+		if(!initialized) return done;
 
 		if(gain != 1.0f) {
 			float *p = out + done * 2;
@@ -598,6 +620,9 @@ unsigned long MIDIPlayer::Play(float *out, unsigned long count) {
 
 void MIDIPlayer::Seek(unsigned long sample) {
 	if(!midi_file) return;
+	// Fooyin may request position zero during startup. No audio has been
+	// consumed yet, so rebuilding a fresh synth only repeats its boot/reset.
+	if(sample == 0 && samples_rendered == 0) return;
 	if(!sequencer && !buildSequencer()) return;
 
 	double target_seconds = (double)sample / dSampleRate;
@@ -629,46 +654,45 @@ void MIDIPlayer::Seek(unsigned long sample) {
 		}
 	}
 
-	/* For callback-mode backends, reset the synthesizer state before
-	 * replaying filler events, so we don't leave stuck notes.  Processor-
-	 * mode Seek is handled internally by ss_sequencer_set_time. */
 	if(!getProcessor()) {
+		pending_events.clear();
+		current_port = 0;
 		shutdown();
 		if(!startup()) return;
-		for(unsigned p = 0; p < 4; ++p) {
-			if(port_mask & (1u << p))
-				dispatchFilterReset(p, 0);
+		for(unsigned p = 0; p < 32; ++p) {
+			if(port_mask & (1u << p)) dispatchFilterReset(p, 0);
 		}
-		/* Flush any synth-bound reset events before seek-replay. */
-		pending_events.clear();
 	}
 
+	// This player loads one MIDI per sequencer. EOF can move the song
+	// index past it, in which case set_time would otherwise do nothing.
+	sequencer->current_song_index = 0;
 	ss_sequencer_set_time(sequencer, target_seconds);
+	/* The sequencer lands its clock on the next MIDI event, which can be
+	 * later than the requested PCM position. Preserve that event cursor,
+	 * but restore the clock so gaps between events are not skipped. Keep
+	 * base + current_time unchanged for processor event timestamps. */
+	sequencer->base_time += sequencer->current_time - target_seconds;
+	sequencer->current_time = target_seconds;
+	sequencer->current_tick = ss_seconds_to_midi_tick(midi_file, target_seconds);
+	sequencer->absolute_start_time = sequencer->engine_time -
+		(target_seconds / sequencer->playback_rate);
+	// set_time does not clear the finished state after reaching EOF.
+	ss_sequencer_play(sequencer);
 	applyDefaultEffectSends();
 
-	/* For callback mode, set_time dispatched non-note filler events via
-	 * callback.  Replay them to the backend now so state is correct. */
-	if(!getProcessor() && !pending_events.empty()) {
-		unsigned current_port = 0;
-		for(auto &e : pending_events) {
-			if(e.data.empty()) continue;
-			if(e.data[0] == 0xF5 && e.data.size() >= 2) {
-				current_port = e.data[1] ? (unsigned)(e.data[1] - 1) : 0u;
-				continue;
-			}
-			dispatchMidi(e.data.data(), e.data.size(), 0u, current_port);
-		}
-		pending_events.clear();
+	if(!getProcessor()) {
+		dispatchPendingEvents(target_seconds, 1);
+		finishSeek();
 	}
 
 	samples_rendered = (long)sample;
 }
 
 unsigned long MIDIPlayer::Tell() const {
-	if(!sequencer) return 0;
-	double t = ss_sequencer_get_time(sequencer) - subsong_start_seconds;
-	if(t < 0.0) t = 0.0;
-	return (unsigned long)std::lround(t * dSampleRate);
+	// The sequencer runs one quantum behind and rewinds at loop markers.
+	// AudioBuffer timestamps must describe the continuous rendered PCM stream.
+	return static_cast<unsigned long>(std::max<long>(0, samples_rendered));
 }
 
 bool MIDIPlayer::GetLastError(std::string &p_out) {

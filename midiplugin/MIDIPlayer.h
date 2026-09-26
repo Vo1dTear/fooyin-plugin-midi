@@ -57,13 +57,16 @@ class MIDIPlayer {
 		double loop_end_seconds,
 		double playback_duration_seconds
 	);
-	unsigned long Play(float *out, unsigned long count);
-	void Seek(unsigned long sample);
-	unsigned long Tell() const;
+	// Prepare the synth before the audio output starts requesting buffers.
+	bool PreparePlayback();
+	virtual unsigned long Play(float *out, unsigned long count);
+	virtual void Seek(unsigned long sample);
+	virtual unsigned long Tell() const;
 
 	bool GetLastError(std::string &p_out);
 
 	protected:
+	bool restartPlayback();
 	virtual bool startup() {
 		return false;
 	}
@@ -104,6 +107,10 @@ class MIDIPlayer {
 	virtual void handleMasterVolume(float value) {
 		master_volume = value;
 	}
+
+	virtual void finishSeek() {}
+	// Called after the sequencer has constructed the file timeline.
+	virtual bool prepareInitialPlayback() { return true; }
 
 	virtual bool get_last_error(std::string &p_out) {
 		return false;
@@ -160,6 +167,8 @@ class MIDIPlayer {
 
 	void dispatchFilterReset(size_t port, uint32_t sample_offset);
 	void inject(std::vector<uint8_t> bytes, double timestamp);
+	unsigned current_port = 0;
+	void dispatchPendingEvents(double block_start, uint32_t chunk);
 	void queueMidi(const uint8_t *data, size_t len, double ts);
 };
 

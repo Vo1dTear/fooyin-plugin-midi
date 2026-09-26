@@ -26,3 +26,18 @@ create_fooyin_plugin(
             MIDIPlayer.cpp
             MIDIPlayer.h
 )
+
+if(MIDI_ENABLE_NUKED_SC55)
+    target_sources(midiplugin PRIVATE NukedSC55Player.cpp NukedSC55Player.h)
+    target_link_libraries(midiplugin PRIVATE fooyin_nuked_sc55)
+    target_compile_definitions(midiplugin PRIVATE MIDI_ENABLE_NUKED_SC55)
+endif()
+
+if(MIDI_ENABLE_EXTERNAL)
+    target_sources(midiplugin PRIVATE
+        ExternalMIDIPlayer.cpp ExternalMIDIPlayer.h
+        ExternalMIDIPort.cpp ExternalMIDIPort.h
+        ExternalMIDIController.cpp ExternalMIDIController.h)
+    target_link_libraries(midiplugin PRIVATE PkgConfig::RTMIDI)
+    target_compile_definitions(midiplugin PRIVATE MIDI_ENABLE_EXTERNAL)
+endif()

@@ -21,21 +21,27 @@
 
 #include <fooyin/core/engine/inputplugin.h>
 #include <fooyin/core/plugins/plugin.h>
+#include <fooyin/core/plugins/coreplugin.h>
 #include <fooyin/gui/plugins/pluginconfigguiplugin.h>
 
 namespace Fooyin::MIDIInput {
 class MIDIInputPlugin : public QObject,
                         public Fooyin::Plugin,
                         public Fooyin::InputPlugin,
+                        public Fooyin::CorePlugin,
                         public Fooyin::PluginConfigGuiPlugin
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID "org.fooyin.fooyin.plugin/1.0" FILE "midiinput.json")
-    Q_INTERFACES(Fooyin::Plugin Fooyin::InputPlugin Fooyin::PluginConfigGuiPlugin)
+    Q_INTERFACES(Fooyin::Plugin Fooyin::CorePlugin Fooyin::InputPlugin Fooyin::PluginConfigGuiPlugin)
 
 public:
+    void initialise(const Fooyin::CorePluginContext& context) override;
+    void shutdown() override;
     [[nodiscard]] QString inputName() const override;
     [[nodiscard]] Fooyin::InputCreator inputCreator() const override;
     [[nodiscard]] std::unique_ptr<Fooyin::PluginSettingsProvider> settingsProvider() const override;
+private:
+    QObject* externalController = nullptr;
 };
 }
