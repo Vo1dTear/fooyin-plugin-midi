@@ -163,6 +163,7 @@ class MIDIPlayer {
 
 	bool buildSequencer();
 	void teardownSequencer();
+	void restoreCallbackState();
 	void applyDefaultEffectSends();
 
 	void dispatchFilterReset(size_t port, uint32_t sample_offset);

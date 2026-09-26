@@ -618,6 +618,32 @@ unsigned long MIDIPlayer::Play(float *out, unsigned long count) {
 	return done;
 }
 
+void MIDIPlayer::restoreCallbackState() {
+	// The sequencer restores controller snapshots only to its built-in
+	// processor. Callback synths need the state messages replayed explicitly.
+	// Preserve ordering around bank/program changes, RPN/NRPN and SysEx;
+	// never replay notes from before the seek position.
+	pending_events.clear();
+	const auto end = std::min(sequencer->songs[0].event_index, midi_file->timeline_count);
+	for(size_t i = 0; i < end; ++i) {
+		const auto& event = midi_file->timeline[i];
+		const auto status = event.status_byte;
+		if(!((status >= 0xb0 && status < 0xf0) || status == 0xf0)) continue;
+		unsigned port = 0;
+		if(midi_file->is_multi_port && midi_file->port_channel_offset_map &&
+		   event.track_index < midi_file->track_count) {
+			const int source = midi_file->tracks[event.track_index].port;
+			if(source >= 0 && size_t(source) < midi_file->port_channel_offset_map_count)
+				port = unsigned(midi_file->port_channel_offset_map[source] / 16);
+		}
+		inject({0xf5, uint8_t(port + 1)}, 0.0);
+		std::vector<uint8_t> bytes{status};
+		if(event.data_length) bytes.insert(bytes.end(), event.data, event.data + event.data_length);
+		if(status == 0xf0 && bytes.back() != 0xf7) bytes.push_back(0xf7);
+		inject(std::move(bytes), 0.0);
+	}
+}
+
 void MIDIPlayer::Seek(unsigned long sample) {
 	if(!midi_file) return;
 	// Fooyin may request position zero during startup. No audio has been
@@ -668,6 +694,7 @@ void MIDIPlayer::Seek(unsigned long sample) {
 	// index past it, in which case set_time would otherwise do nothing.
 	sequencer->current_song_index = 0;
 	ss_sequencer_set_time(sequencer, target_seconds);
+	if(!getProcessor()) restoreCallbackState();
 	/* The sequencer lands its clock on the next MIDI event, which can be
 	 * later than the requested PCM position. Preserve that event cursor,
 	 * but restore the clock so gaps between events are not skipped. Keep

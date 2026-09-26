@@ -123,6 +123,49 @@ void callbacks() {
     std::cout << "Callback initialization, port mapping, timing and seek passed\n";
 }
 
+void seekControllerState() {
+    // Two source ports, with state changes before and after the seek target.
+    std::vector<uint8_t> bytes{'M','T','h','d',0,0,0,6,0,1,0,2,1,0xe0};
+    for(uint8_t port : {4, 9}) {
+        const std::vector<uint8_t> track{
+            0,0xff,0x21,1,port,
+            0,0xb0,0,1, 0,0xc0,40, 0,0xb0,10,uint8_t(port == 4 ? 0 : 127),
+            0,0xb0,7,90, 0,0xb0,11,80, 0,0xe0,0,65,
+            0x81,0x70,0x90,60,100,
+            0x83,0x60,0xb0,121,0, 0,0xb0,10,32,
+            0,0x80,60,0, 0x85,0x50,0xb0,64,0, 0,0xff,0x2f,0};
+        bytes.insert(bytes.end(), {'M','T','r','k',0,0,0,uint8_t(track.size())});
+        bytes.insert(bytes.end(), track.begin(), track.end());
+    }
+    auto* input = ss_file_open_from_memory(bytes.data(), bytes.size(), false);
+    std::unique_ptr<SS_MIDIFile, decltype(&ss_midi_free)> file(ss_midi_load(input, "mid"), ss_midi_free);
+    ss_file_close(input);
+    require(bool(file), "Cannot parse controller state fixture");
+    CapturePlayer player;
+    load(player, file.get());
+    for(const unsigned target : {22050u, 44100u, 22050u}) {
+        player.events.clear();
+        player.Seek(target);
+        for(unsigned port = 0; port < 2; ++port) {
+            std::vector<std::vector<uint8_t>> actual;
+            for(const auto& e : player.events) {
+                require((e.data[0] & 0xf0) != 0x90, "Seek replayed an old note");
+                if(e.port == port && e.data[0] >= 0xb0 && e.data[0] <= 0xef)
+                    actual.push_back(e.data);
+            }
+            std::vector<std::vector<uint8_t>> expected{
+                {0xb0,0,1}, {0xc0,40}, {0xb0,10,uint8_t(port ? 127 : 0)},
+                {0xb0,7,90}, {0xb0,11,80}, {0xe0,0,65}};
+            if(target == 44100) {
+                expected.push_back({0xb0,121,0});
+                expected.push_back({0xb0,10,32});
+            }
+            require(actual == expected, "Seek lost, reordered or misrouted channel state");
+        }
+    }
+    std::cout << "Seek restores pan, volume, expression, pitch and controller resets on both ports\n";
+}
+
 void seekTimeline() {
     auto file = midi();
     CapturePlayer player;
@@ -576,6 +619,7 @@ int main(int argc, char** argv) {
     try {
         callbacks();
         seekTimeline();
+        seekControllerState();
         playbackTimeline();
 #ifdef MIDI_ENABLE_EXTERNAL
         externalStartup();
