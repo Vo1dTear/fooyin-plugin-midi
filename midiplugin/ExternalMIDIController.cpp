@@ -38,8 +38,15 @@ ExternalMIDIController::ExternalMIDIController(const CorePluginContext& context,
             suspended = true;
             return;
         }
-        // Track selection owns session creation. Starting one here as well can
-        // play an attack and then reset it when currentTrackChanged arrives.
+        // Stop destroys the session, but Play on the same track need not emit
+        // currentTrackChanged. Defer the fallback so a pending track selection
+        // can create the session first, avoiding duplicate starts/resets.
+        if(!decoder && state == Player::PlayState::Playing) {
+            QTimer::singleShot(0, this, [this] {
+                if(!decoder && player->playState() == Player::PlayState::Playing)
+                    loadTrack(player->currentTrack());
+            });
+        }
         if(decoder && suspended) {
             if(renderedFrames) seek(player->currentPosition());
             else anchor(0);

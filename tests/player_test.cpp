@@ -166,6 +166,35 @@ void seekControllerState() {
     std::cout << "Seek restores pan, volume, expression, pitch and controller resets on both ports\n";
 }
 
+void softWholeFileLoop() {
+    auto file = midi();
+    file->loop.start = 0;
+    // MUS can place end-of-track metadata one tick beyond its duration.
+    // A loop at that metadata tick is unreachable: the sequencer stops first.
+    auto& track = file->tracks[0];
+    ++track.events[track.event_count - 1].ticks;
+    file->loop.end = ss_seconds_to_midi_tick(file.get(), file->duration);
+    file->loop.type = SS_LOOP_TYPE_SOFT;
+    CapturePlayer player;
+    load(player, file.get(), MIDIPlayer::loop_mode_enable | MIDIPlayer::loop_mode_force);
+    require(player.PreparePlayback(), "Could not prepare soft loop");
+    player.events.clear();
+    float block[256];
+    unsigned notes = 0;
+    for(unsigned frames = 0; frames < 44100 * 4; frames += 128) {
+        require(player.Play(block, 128) == 128, "Soft loop returned EOF");
+        for(const auto& event : player.events) {
+            require(event.data != std::vector<uint8_t>({0xf0,0x41,0x10,0x42,0x12,0x40,0,0x7f,0,0x41,0xf7}),
+                    "Soft repeat sent a GS reset between notes");
+            if(event.data == std::vector<uint8_t>({0x90,60,100})) ++notes;
+        }
+        player.events.clear();
+    }
+    require(notes == 3, "Soft repeat lost or duplicated first notes");
+    require(player.starts == 1, "Soft repeat restarted the synth");
+    std::cout << "Whole-file soft loop preserves notes without GS reset or synth restart\n";
+}
+
 void seekTimeline() {
     auto file = midi();
     CapturePlayer player;
@@ -619,6 +648,7 @@ int main(int argc, char** argv) {
     try {
         callbacks();
         seekTimeline();
+        softWholeFileLoop();
         seekControllerState();
         playbackTimeline();
 #ifdef MIDI_ENABLE_EXTERNAL

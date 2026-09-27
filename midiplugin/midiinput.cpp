@@ -459,7 +459,24 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
         loopStart < framesLength &&
         loopEnd <= framesLength + 0.001;
 
-    repeatOne = repeatTrack && hasLoop;
+    // Without explicit loop markers, repeat the whole file in the sequencer.
+    // Returning EOF here makes fooyin reopen the decoder and reboot/reset the
+    // synth between repetitions (notably MUS files, which have no loop markers).
+    repeatOne = repeatTrack;
+
+    // Repeating an unmarked file through the sequencer's EOF path sends a
+    // synth reset. Use a soft whole-file loop instead, preserving the device
+    // and effect tails. This MIDI file is owned by this decoder alone.
+    if(repeatOne && !hasLoop && m_midiFile->format != 2) {
+        // MUS end-of-track metadata may extend beyond the song duration,
+        // where the sequencer stops. Place the marker at the duration instead.
+        const size_t endTick = ss_seconds_to_midi_tick(m_midiFile, m_midiFile->duration);
+        if(endTick) {
+            m_midiFile->loop.start = 0;
+            m_midiFile->loop.end = endTick;
+            m_midiFile->loop.type = SS_LOOP_TYPE_SOFT;
+        }
+    }
 
     bool isLooped = false;
     if(hasLoop) {
