@@ -644,6 +644,23 @@ void MIDIPlayer::restoreCallbackState() {
 	}
 }
 
+void MIDIPlayer::configureWholeFileLoop(SS_MIDIFile* file) {
+	if(!file || file->format == 2 || file->loop.end > file->loop.start) return;
+	if(!ss_midi_ensure_timeline(file) || !file->timeline_count) return;
+	const auto endTick = file->timeline[file->timeline_count - 1].ticks;
+	if(!endTick) return;
+	// Parsed duration can stop at the last note-off, before End Of Track.
+	// Keep the final rest and extend the sequencer's stop time so it reaches
+	// the loop marker, without a synth reset or an early jump.
+	file->duration = std::max(file->duration, ss_midi_ticks_to_seconds(file, endTick));
+	// The sequencer also stops at last_voice_event_tick, independently of
+	// duration. For this repeat-only view, allow it to reach the final meta.
+	file->last_voice_event_tick = endTick;
+	file->loop.start = 0;
+	file->loop.end = endTick;
+	file->loop.type = SS_LOOP_TYPE_SOFT;
+}
+
 void MIDIPlayer::Seek(unsigned long sample) {
 	if(!midi_file) return;
 	// Fooyin may request position zero during startup. No audio has been

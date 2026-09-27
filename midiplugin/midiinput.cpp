@@ -468,14 +468,9 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
     // synth reset. Use a soft whole-file loop instead, preserving the device
     // and effect tails. This MIDI file is owned by this decoder alone.
     if(repeatOne && !hasLoop && m_midiFile->format != 2) {
-        // MUS end-of-track metadata may extend beyond the song duration,
-        // where the sequencer stops. Place the marker at the duration instead.
-        const size_t endTick = ss_seconds_to_midi_tick(m_midiFile, m_midiFile->duration);
-        if(endTick) {
-            m_midiFile->loop.start = 0;
-            m_midiFile->loop.end = endTick;
-            m_midiFile->loop.type = SS_LOOP_TYPE_SOFT;
-        }
+        MIDIPlayer::configureWholeFileLoop(m_midiFile);
+        framesLength = m_midiFile->duration;
+        loopEnd = framesLength;
     }
 
     bool isLooped = false;

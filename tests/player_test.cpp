@@ -168,25 +168,29 @@ void seekControllerState() {
 
 void softWholeFileLoop() {
     auto file = midi();
-    file->loop.start = 0;
-    // MUS can place end-of-track metadata one tick beyond its duration.
-    // A loop at that metadata tick is unreachable: the sequencer stops first.
+    // Preserve a quarter-second rest after the parsed musical duration.
     auto& track = file->tracks[0];
-    ++track.events[track.event_count - 1].ticks;
-    file->loop.end = ss_seconds_to_midi_tick(file.get(), file->duration);
-    file->loop.type = SS_LOOP_TYPE_SOFT;
+    track.events[track.event_count - 1].ticks += 240;
+    MIDIPlayer::configureWholeFileLoop(file.get());
+    require(std::abs(file->duration - 1.75) < .00001, "Loop discarded final rest");
     CapturePlayer player;
     load(player, file.get(), MIDIPlayer::loop_mode_enable | MIDIPlayer::loop_mode_force);
     require(player.PreparePlayback(), "Could not prepare soft loop");
     player.events.clear();
     float block[256];
     unsigned notes = 0;
+    unsigned long previousAttack = 0;
     for(unsigned frames = 0; frames < 44100 * 4; frames += 128) {
         require(player.Play(block, 128) == 128, "Soft loop returned EOF");
         for(const auto& event : player.events) {
             require(event.data != std::vector<uint8_t>({0xf0,0x41,0x10,0x42,0x12,0x40,0,0x7f,0,0x41,0xf7}),
                     "Soft repeat sent a GS reset between notes");
-            if(event.data == std::vector<uint8_t>({0x90,60,100})) ++notes;
+            if(event.data == std::vector<uint8_t>({0x90,60,100})) {
+                if(notes) require(std::abs(double(event.frame - previousAttack) - 1.75 * 44100) <= 256,
+                                  "Repeat entered early or late instead of preserving final rest");
+                previousAttack = event.frame;
+                ++notes;
+            }
         }
         player.events.clear();
     }
