@@ -166,6 +166,42 @@ void seekControllerState() {
     std::cout << "Seek restores pan, volume, expression, pitch and controller resets on both ports\n";
 }
 
+void explicitLoopFinalRest() {
+    for(const auto type : {SS_LOOP_TYPE_HARD, SS_LOOP_TYPE_SOFT}) {
+        auto file = midi();
+        // Last voice at 1.5 s, explicit end at 1.75 s, as in the Klonoa MIDIs.
+        auto& track = file->tracks[0];
+        track.events[track.event_count - 1].ticks += 240;
+        file->loop.start = 0;
+        file->loop.end = track.events[track.event_count - 1].ticks;
+        file->loop.type = type;
+        MIDIPlayer::preserveExplicitLoopEnd(file.get());
+        require(std::abs(file->duration - 1.75) < .00001, "Explicit loop final rest was discarded");
+        require(file->loop.start == 0 && file->loop.type == type, "Explicit loop semantics changed");
+        for(bool infinite : {false, true}) {
+            CapturePlayer player;
+            player.setLoopCount(1);
+            require(player.Load(file.get(), 0, infinite ? MIDIPlayer::loop_mode_enable : 0,
+                                0, 0, 1.75, 3.5), "Explicit loop load failed");
+            player.setLoopCount(1);
+            float block[256];
+            unsigned notes = 0;
+            unsigned long frames = 0;
+            while(frames < 44100 * 4) {
+                const auto got = player.Play(block, 128);
+                if(!got) break;
+                frames += got;
+                for(const auto& e : player.events)
+                    if(e.data == std::vector<uint8_t>({0x90,60,100})) ++notes;
+                player.events.clear();
+            }
+            require(notes == (infinite ? 3u : 2u), "Explicit loop became silent or repeated incorrectly");
+            require(infinite || frames >= 44100 * 3.5, "Finite loop ended before the final rest");
+        }
+    }
+    std::cout << "Explicit hard/soft loops retain final rests with finite and infinite repeat\n";
+}
+
 void softWholeFileLoop() {
     auto file = midi();
     // Preserve a quarter-second rest after the parsed musical duration.
@@ -653,6 +689,7 @@ int main(int argc, char** argv) {
         callbacks();
         seekTimeline();
         softWholeFileLoop();
+        explicitLoopFinalRest();
         seekControllerState();
         playbackTimeline();
 #ifdef MIDI_ENABLE_EXTERNAL

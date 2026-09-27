@@ -43,6 +43,7 @@ class MIDIPlayer {
 
 	// Configure an unmarked, decoder-owned file for continuous whole-file repeat.
 	static void configureWholeFileLoop(SS_MIDIFile* file);
+	static void preserveExplicitLoopEnd(SS_MIDIFile* file);
 	void setSampleRate(double rate);
 	void setLoopMode(unsigned int mode);
 	void setLoopCount(unsigned int jumpCount);

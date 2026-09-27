@@ -271,6 +271,8 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
         ss_midi_flush(m_midiFile);
     }
     
+    MIDIPlayer::preserveExplicitLoopEnd(m_midiFile);
+
     if(m_midiFile->duration <= 0.0) {
         return {};
     }
@@ -694,6 +696,8 @@ bool MIDIReader::init(const AudioSource& source)
         ss_midi_remove_emidi_non_gm(m_midiFile);
         ss_midi_flush(m_midiFile);
     }
+
+    MIDIPlayer::preserveExplicitLoopEnd(m_midiFile);
 
     if(m_midiFile->duration <= 0.0) {
         return false;

@@ -185,6 +185,7 @@ bool MIDIPlayer::Load(
 	teardownSequencer();
 
 	if(!in_midi) return false;
+	preserveExplicitLoopEnd(in_midi);
 	midi_file = in_midi;
 	loop_mode_flags = loop_mode;
 	port_mask = derive_port_mask(midi_file);
@@ -642,6 +643,21 @@ void MIDIPlayer::restoreCallbackState() {
 		if(status == 0xf0 && bytes.back() != 0xf7) bytes.push_back(0xf7);
 		inject(std::move(bytes), 0.0);
 	}
+}
+
+void MIDIPlayer::preserveExplicitLoopEnd(SS_MIDIFile* file) {
+	if(!file || file->format == 2 || file->loop.end <= file->loop.start) return;
+	if(!ss_midi_ensure_timeline(file) || !file->timeline_count) return;
+	// Only extend to a marker that the sequencer can actually reach.
+	const auto* begin = file->timeline;
+	const auto* end = begin + file->timeline_count;
+	const auto* marker = std::lower_bound(begin, end, file->loop.end,
+		[](const auto& event, size_t tick) { return event.ticks < tick; });
+	if(marker == end || marker->ticks != file->loop.end) return;
+	// A final rest may separate the last voice event from loopEnd. Both
+	// termination limits must include it, for finite and infinite loops alike.
+	file->last_voice_event_tick = std::max(file->last_voice_event_tick, file->loop.end);
+	file->duration = std::max(file->duration, ss_midi_ticks_to_seconds(file, file->loop.end));
 }
 
 void MIDIPlayer::configureWholeFileLoop(SS_MIDIFile* file) {
