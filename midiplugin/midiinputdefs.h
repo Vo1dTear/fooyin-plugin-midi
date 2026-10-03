@@ -50,6 +50,9 @@ constexpr auto EffectsEnabledSetting  = "MIDIInput/EffectsEnabled";
 
 constexpr auto DefaultLoopCount       = 2;
 constexpr auto LoopCountSetting       = "MIDIInput/LoopCount";
+constexpr auto DefaultReleaseTail = 4000;
+constexpr auto MaximumReleaseTail = 30000;
+constexpr auto ReleaseTailSetting = "MIDIInput/ReleaseTail";
 constexpr auto DefaultFadeLength      = 4000;
 constexpr auto FadeLengthSetting      = "MIDIInput/FadeLength";
 

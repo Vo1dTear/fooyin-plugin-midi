@@ -60,6 +60,7 @@ private:
     SS_MIDIFile* m_midiFile;
     MIDIPlayer* m_midiPlayer;
     Fooyin::Track m_changedTrack;
+    mutable bool m_trackChangePending{false};
     bool m_isDecoding;
 
     bool repeatOne;

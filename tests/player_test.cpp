@@ -235,6 +235,23 @@ void softWholeFileLoop() {
     std::cout << "Whole-file soft loop preserves notes without GS reset or synth restart\n";
 }
 
+void finiteReleaseTail() {
+    auto file = midi();
+    CapturePlayer player;
+    player.setLoopCount(0);
+    require(player.Load(file.get(), 0, 0, 0, 0, file->duration, file->duration + 2.0),
+            "Cannot load release tail fixture");
+    float block[256];
+    unsigned long frames = 0;
+    while(auto got = player.Play(block, 128)) {
+        frames += got;
+        require(frames <= 44100 * 3.5 + 128, "Release tail did not end");
+    }
+    require(frames >= 44100 * 3.5, "Sequencer EOF cropped the explicit release tail");
+    require(player.starts == 1, "Release tail restarted the synth");
+    std::cout << "Finite playback renders the release tail after MIDI EOF\n";
+}
+
 void seekTimeline() {
     auto file = midi();
     CapturePlayer player;
@@ -473,12 +490,27 @@ void romTest(const char* directory, const std::string& romset) {
     auto audio = render(player, player.sampleRate());
     std::cout << "MIDI duration: " << file->duration << "; rendered frames: " << audio.size()/2 << std::endl;
     require(audio.size() == player.sampleRate() * 2, "Short audio render");
+    // AC-only RMS deliberately ignores DC. Check raw silence separately:
+    // a nonzero idle level causes a click at PCM stream boundaries.
+    const auto checkIdleLevel = [&](const std::vector<float>& pcm) {
+        for(size_t channel = 0; channel < 2; ++channel) {
+            double mean = 0;
+            const size_t begin = player.sampleRate() / 20;
+            const size_t end = player.sampleRate() / 5;
+            for(size_t frame = begin; frame < end; ++frame) mean += pcm[frame * 2 + channel];
+            require(std::abs(mean / (end - begin)) < .001, "Silent PCM has a DC offset");
+        }
+        require(std::abs(pcm[0]) < .001 && std::abs(pcm[1]) < .001,
+                "Playback begins with an idle-level discontinuity");
+    };
+    checkIdleLevel(audio);
     const auto silence = rms(audio, player.sampleRate(), .05, .20);
     const auto sound = rms(audio, player.sampleRate(), .35, .65);
     std::cout << "Native rate: " << player.sampleRate() << "; silence RMS: " << silence << "; note RMS: " << sound << '\n';
     require(sound > .001 && sound > silence * 10, "Expected note or initial silence missing");
     player.Seek(0);
     auto replay = render(player, player.sampleRate());
+    checkIdleLevel(replay);
     require(rms(replay, player.sampleRate(), .35, .65) > .001, "Silent after rewind");
     require(rms(replay, player.sampleRate(), .05, .20) < sound / 10, "Stuck note after rewind");
     player.Seek(unsigned(player.sampleRate() * 1.0));
@@ -688,6 +720,7 @@ int main(int argc, char** argv) {
     try {
         callbacks();
         seekTimeline();
+        finiteReleaseTail();
         softWholeFileLoop();
         explicitLoopFinalRest();
         seekControllerState();

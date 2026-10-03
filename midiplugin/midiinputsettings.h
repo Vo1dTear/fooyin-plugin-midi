@@ -54,6 +54,7 @@ private:
     QComboBox* m_romSet;
     QSpinBox* m_loopCount;
     QSpinBox* m_fadeLength;
+    QSpinBox* m_releaseTail;
     QSpinBox* m_voiceCount;
     QComboBox* m_interpolationFilter;
     Fooyin::DoubleSliderEditor* m_gain;

@@ -540,7 +540,8 @@ unsigned long MIDIPlayer::Play(float *out, unsigned long count) {
 	if(!sequencer && !buildSequencer()) return 0;
 	if(!initialized) return 0;
 	if(!(loop_mode_flags & loop_mode_enable) &&
-		(samples_rendered >= samples_total || ss_sequencer_is_finished(sequencer)))
+		(samples_rendered >= samples_total ||
+		 (!has_playback_duration && ss_sequencer_is_finished(sequencer))))
 		return 0;
 
 	unsigned long done = 0;
@@ -550,6 +551,8 @@ unsigned long MIDIPlayer::Play(float *out, unsigned long count) {
 	while(done < count) {
 		uint32_t chunk = chunk_max;
 		if(chunk > (uint32_t)(count - done)) chunk = (uint32_t)(count - done);
+		if(!(loop_mode_flags & loop_mode_enable))
+			chunk = std::min<unsigned long>(chunk, samples_total - samples_rendered);
 		if(chunk == 0) break;
 
 		double block_start = sequencer->base_time + ss_sequencer_get_time(sequencer);

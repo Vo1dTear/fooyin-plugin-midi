@@ -45,7 +45,16 @@ struct NukedSC55Player::Impl {
         static void sample(void* context, const AudioFrame<int32_t>& frame) {
             AudioFrame<float> normalized;
             Normalize(frame, normalized);
-            static_cast<Instance*>(context)->audio.push_back(normalized);
+            auto& instance = *static_cast<Instance*>(context);
+            // The mk1 backend's idle level is 0x1000000 (also documented by
+            // upstream's R_SilenceModelMK1). Center it before gain/fade and
+            // mixing, otherwise attaching/detaching PCM produces a DC step.
+            // Float normalization divides by 0x20000000, giving 1/32 here.
+            if(instance.roms->romset == Romset::MK1) {
+                normalized.left -= 1.0f / 32.0f;
+                normalized.right -= 1.0f / 32.0f;
+            }
+            instance.audio.push_back(normalized);
         }
 
         void step() {

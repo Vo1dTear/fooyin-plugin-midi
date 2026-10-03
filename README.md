@@ -172,6 +172,7 @@ only; they do not change the model selected in fooyin. ROM files are not include
 * Configurable reverb and chorus levels (0% to 500%)
 * A default-on switch to enable or disable both reverb and chorus
 * Configurable loop count and fade length
+* Adjustable time for final notes to decay (default: 4 seconds). Used with fade disabled or external MIDI.
 * Support for fooyin's `Repeat track` option without fading between repetitions
 
 ## Credits and license

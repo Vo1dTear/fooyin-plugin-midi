@@ -220,11 +220,16 @@ bool MIDIDecoder::isSeekable() const
 
 bool MIDIDecoder::trackHasChanged() const
 {
-    return m_changedTrack.isValid();
+    return m_trackChangePending;
 }
  
 Fooyin::Track MIDIDecoder::changedTrack() const
 {
+    // Acknowledge this update once, as fooyin's decoder contract expects.
+    // Retaining the notification can republish it when a prepared decoder
+    // is adopted with the playlist's original metadata.
+
+    m_trackChangePending = false;
     return m_changedTrack;
 }
  
@@ -236,6 +241,7 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
     stop();
     m_format.setSampleRate(SampleRate);
     m_options = options;
+
     
     const QByteArray data = source.device->readAll();
     
@@ -506,6 +512,15 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
         isLooped = loopCount > 0;
     }
     
+    const bool external = m_settings.value(EngineSetting, DefaultEngine).toInt() == ExternalEngine;
+    // A finite fade replaces the natural release tail. External MIDI does
+    // not apply fades, so it always uses the configured tail at finite EOF.
+    if(!repeatOne && (external || framesFade == 0.0)) {
+        const int tailMs = std::clamp(m_settings.value(ReleaseTailSetting, DefaultReleaseTail).toInt(),
+                                      0, MaximumReleaseTail);
+        framesLength += tailMs / 1000.0;
+    }
+
     framesRead = 0;
     
     framesLength =
@@ -520,7 +535,6 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
     MIDIPlayer::loop_mode_force
     : 0;
 
-    const bool external = m_settings.value(EngineSetting, DefaultEngine).toInt() == ExternalEngine;
     const double playbackFade = (repeatTrack || external) ? 0.0 : framesFade;
 
     m_midiPlayer->setLoopCount(
@@ -560,11 +574,17 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
         false
     );
     
+    // Internal audio ends at decoder EOF, including the release tail. Do not
+    // publish a runtime duration change: fooyin can consume it while staging
+    // a gapless decoder, before committing the next track, and reopen it.
+    // External MIDI retains its existing duration/clock synchronization.
 #ifdef MIDI_ENABLE_EXTERNAL
-    if(m_settings.value(EngineSetting, DefaultEngine).toInt() == ExternalEngine) {
+    if(external) {
         m_changedTrack = track;
-        m_changedTrack.setDuration(static_cast<uint64_t>(std::llround(framesLength * 1000.0 / sampleRate))
-                                   + ExternalMIDIPlayer::StartupMilliseconds);
+        const auto durationMs = static_cast<uint64_t>(std::llround(framesLength * 1000.0 / sampleRate))
+            + ExternalMIDIPlayer::StartupMilliseconds;
+        m_changedTrack.setDuration(durationMs);
+        m_trackChangePending = !m_changedTrack.sameDataAs(track);
     }
 #endif
 
@@ -584,12 +604,14 @@ std::optional<Fooyin::AudioFormat> MIDIDecoder::init(
  
 void MIDIDecoder::start()
 {
+
     m_isDecoding = true;
 }
  
 void MIDIDecoder::stop()
 {
     if(m_midiPlayer) {
+
         delete m_midiPlayer;
         m_midiPlayer = NULL;
     }
@@ -598,11 +620,13 @@ void MIDIDecoder::stop()
         m_midiFile = NULL;
     }
     m_changedTrack = {};
+    m_trackChangePending = false;
     m_isDecoding = false;
 }
 
 void MIDIDecoder::seek(uint64_t pos)
 {
+
     framesRead = m_format.framesForDuration(pos);
     m_midiPlayer->Seek(framesRead);
 }
@@ -636,10 +660,10 @@ Fooyin::AudioBuffer MIDIDecoder::readBuffer(size_t bytes)
     framesRead += framesWritten;
 
     if(!framesWritten) {
+
         return {};
     } else if(framesWritten < frames) {
-        const int bufferPos = m_format.bytesForFrames(framesWritten);
-        memset(buffer.data() + bufferPos, 0, bytes - bufferPos);
+        buffer.resize(m_format.bytesForFrames(framesWritten));
     }
  
     return buffer;

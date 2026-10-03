@@ -41,6 +41,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QStyle>
 #include <QComboBox>
 
 using namespace Qt::StringLiterals;
@@ -54,6 +55,7 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     , m_romSet{new QComboBox(this)}
     , m_loopCount{new QSpinBox(this)}
     , m_fadeLength{new QSpinBox(this)}
+    , m_releaseTail{new QSpinBox(this)}
     , m_voiceCount{new QSpinBox(this)}
     , m_interpolationFilter{new QComboBox(this)}
     , m_gain{new DoubleSliderEditor(tr("Gain"), this)}
@@ -89,12 +91,26 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     m_fadeLength->setRange(0, 10000);
     m_fadeLength->setSingleStep(500);
     m_fadeLength->setSuffix(u" "_s + tr("ms"));
+    auto* releaseLabel = new QLabel(tr("Release tail") + u":"_s, this);
+    m_releaseTail->setRange(0, MaximumReleaseTail);
+    m_releaseTail->setSingleStep(500);
+    m_releaseTail->setSuffix(u" "_s + tr("ms"));
+    const auto releaseHelp = tr("Adds time for the final notes to decay.\nApplies when Fade length is 0 or with external MIDI.");
+    m_releaseTail->setToolTip(releaseHelp);
+    auto* releaseInfo = new QLabel(this);
+    releaseInfo->setPixmap(style()->standardIcon(QStyle::SP_MessageBoxQuestion).pixmap(16, 16));
+    releaseInfo->setAccessibleName(tr("About release tail"));
+    releaseInfo->setAccessibleDescription(releaseHelp);
+    releaseInfo->setToolTip(releaseHelp);
 
     int row{0};
     lengthLayout->addWidget(loopLabel, row, 0);
     lengthLayout->addWidget(m_loopCount, row++, 1);
     lengthLayout->addWidget(fadeLabel, row, 0);
     lengthLayout->addWidget(m_fadeLength, row++, 1);
+    lengthLayout->addWidget(releaseLabel, row, 0);
+    lengthLayout->addWidget(m_releaseTail, row, 1);
+    lengthLayout->addWidget(releaseInfo, row++, 2, Qt::AlignLeft);
     lengthLayout->setColumnStretch(2, 1);
     lengthLayout->setRowStretch(row++, 1);
 
@@ -251,6 +267,7 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
 
     m_loopCount->setValue(m_settings.value(LoopCountSetting, DefaultLoopCount).toInt());
     m_fadeLength->setValue(m_settings.value(FadeLengthSetting, DefaultFadeLength).toInt());
+    m_releaseTail->setValue(m_settings.value(ReleaseTailSetting, DefaultReleaseTail).toInt());
     m_interpolationFilter->setCurrentIndex(
         m_interpolationFilter->findData(m_settings.value(InterpolationSetting, DefaultInterpolation).toInt()));
     m_voiceCount->setValue(m_settings.value(VoiceCountSetting, DefaultVoiceCount).toInt());
@@ -271,6 +288,8 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
         externalGroup->setVisible(external);
         m_gain->setEnabled(!external);
         m_fadeLength->setEnabled(!external);
+        m_releaseTail->setEnabled(external || m_fadeLength->value() == 0);
+        releaseLabel->setEnabled(m_releaseTail->isEnabled());
         nukedGroup->setVisible(nuked);
         m_soundfontLocation->setEnabled(spessa);
         m_soundfontGSLocation->setEnabled(spessa);
@@ -284,6 +303,7 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
         m_chorusLevel->setEnabled(spessa && m_effectsEnabled->isChecked());
     };
     connect(m_engine, &QComboBox::currentIndexChanged, this, updateEngine);
+    connect(m_fadeLength, &QSpinBox::valueChanged, this, updateEngine);
     connect(m_effectsEnabled, &QCheckBox::toggled, this, updateEngine);
     m_engine->setCurrentIndex(std::max(0, m_engine->findData(m_settings.value(EngineSetting, DefaultEngine))));
     updateEngine();
@@ -318,6 +338,7 @@ void MIDIInputSettings::accept()
     m_settings.setValue(NukedRomSetSetting, m_romSet->currentData());
     m_settings.setValue(LoopCountSetting, m_loopCount->value());
     m_settings.setValue(FadeLengthSetting, m_fadeLength->value());
+    m_settings.setValue(ReleaseTailSetting, m_releaseTail->value());
     m_settings.setValue(InterpolationSetting, m_interpolationFilter->currentData().toInt());
     m_settings.setValue(VoiceCountSetting, m_voiceCount->value());
     m_settings.setValue(GainSetting, m_gain->value());
@@ -338,6 +359,7 @@ void MIDIInputSettings::reset()
     m_romSet->setCurrentIndex(m_romSet->findData(QString::fromLatin1(DefaultNukedRomSet)));
     m_loopCount->setValue(DefaultLoopCount);
     m_fadeLength->setValue(DefaultFadeLength);
+    m_releaseTail->setValue(DefaultReleaseTail);
     m_interpolationFilter->setCurrentIndex(
         m_interpolationFilter->findData(DefaultInterpolation));
     m_voiceCount->setValue(DefaultVoiceCount);

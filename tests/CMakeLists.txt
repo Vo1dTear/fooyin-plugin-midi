@@ -23,3 +23,17 @@ if(MIDI_ENABLE_EXTERNAL)
     target_sources(midi_player_test PRIVATE ../midiplugin/ExternalMIDIPlayer.cpp)
     target_compile_definitions(midi_player_test PRIVATE MIDI_ENABLE_EXTERNAL)
 endif()
+
+if(MIDI_ENABLE_EXTERNAL)
+    # Exercise the actual decoder duration/EOF contract without ROMs or a MIDI port.
+    add_executable(midi_decoder_tail_test decoder_tail_test.cpp
+        ../midiplugin/midiinput.cpp ../midiplugin/MIDIPlayer.cpp
+        ../midiplugin/SpessaPlayer.cpp ../midiplugin/ExternalMIDIPlayer.cpp
+        ../midiplugin/ExternalMIDIPort.cpp)
+    set_target_properties(midi_decoder_tail_test PROPERTIES AUTOMOC OFF AUTOUIC OFF)
+    target_include_directories(midi_decoder_tail_test PRIVATE ../midiplugin)
+    target_compile_features(midi_decoder_tail_test PRIVATE cxx_std_20)
+    target_compile_definitions(midi_decoder_tail_test PRIVATE MIDI_ENABLE_EXTERNAL)
+    target_link_libraries(midi_decoder_tail_test PRIVATE Fooyin::Core spessasynth PkgConfig::RTMIDI)
+    add_test(NAME midi_decoder_tail COMMAND midi_decoder_tail_test)
+endif()
