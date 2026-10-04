@@ -1,0 +1,321 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
+jobs:
+  build:
+    name: Build fooyin and plugin (Linux x64)
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+
+    env:
+      FOOYIN_REF: 9f6e9364b9d1cdcccecf598db08b84b3f701e1b0 # fooyin v0.13.1
+      FOOYIN_PREFIX: ${{ github.workspace }}/fooyin-install
+
+    steps:
+      - name: Dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            git \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libasound2-dev \
+            qt6-base-dev \
+            qt6-svg-dev \
+            qt6-tools-dev \
+            libavcodec-dev \
+            libavfilter-dev \
+            libavformat-dev \
+            libavdevice-dev \
+            libavutil-dev \
+            libswresample-dev \
+            libicu-dev \
+            libtag1-dev \
+            libvorbis-dev \
+            libflac-dev \
+            zlib1g-dev
+
+      - name: Checkout plugin
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Checkout fooyin
+        uses: actions/checkout@v7
+        with:
+          repository: fooyin/fooyin
+          ref: ${{ env.FOOYIN_REF }}
+          path: fooyin
+          submodules: recursive
+
+      - name: Configure fooyin
+        run: |
+          cmake -S fooyin -B fooyin-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$FOOYIN_PREFIX" \
+            -DBUILD_PCH=ON \
+            -DBUILD_TRANSLATIONS=OFF \
+            -DINSTALL_HEADERS=ON \
+            -DPLUGIN_SELECTION=none
+
+      - name: Build fooyin
+        run: cmake --build fooyin-build
+
+      - name: Install fooyin
+        run: cmake --install fooyin-build
+
+      - name: Configure plugin
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$FOOYIN_PREFIX" \
+            -DMIDI_USE_BUNDLED_SPESSASYNTH=ON \
+            -DMIDI_USE_BUNDLED_RTMIDI=ON \
+            -DMIDI_ENABLE_EXTERNAL=ON \
+            -DMIDI_ENABLE_NUKED_SC55=ON \
+            -DMIDI_BUILD_TESTS=OFF
+
+      - name: Build plugin
+        run: cmake --build build
+
+      - name: Verify static dependencies
+        run: |
+          readelf -d build/midiplugin/fyplugin_midiplugin.so > dependencies.txt
+          cat dependencies.txt
+          if grep -Ei 'NEEDED.*(spessasynth|rtmidi)' dependencies.txt; then
+            echo 'SpessaSynth or RtMidi is still a shared dependency' >&2
+            exit 1
+          fi
+
+      - name: Package plugin
+        run: |
+          mkdir -p package/licenses
+          cp build/midiplugin/fyplugin_midiplugin.so package/
+          cp 3rdparty/spessasynth_core_c/LICENSE package/licenses/SpessaSynth.txt
+          cp 3rdparty/rtmidi/LICENSE package/licenses/RtMidi.txt
+          cp 3rdparty/Nuked-SC55/LICENSE package/licenses/Nuked-SC55.txt
+          printf '%s\n' \
+            'Built against fooyin 0.13.1 on Ubuntu 24.04 (x86_64).' \
+            'SpessaSynth and RtMidi are linked statically; Nuked-SC55 is included.' \
+            'Requires compatible fooyin/Qt, ALSA, Vorbis, FLAC and zlib system libraries.' \
+            'SoundFonts and ROMs are not included.' > package/BUILD.txt
+          tar -czf fooyin-plugin-midi-linux-x64.tar.gz -C package .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: fooyin-plugin-midi-linux
+          path: fooyin-plugin-midi-linux-x64.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    name: Build fooyin and plugin (Windows x64)
+    runs-on: windows-latest
+
+    env:
+      FOOYIN_REF: 9f6e9364b9d1cdcccecf598db08b84b3f701e1b0 # fooyin v0.13.1
+      FOOYIN_PREFIX: ${{ github.workspace }}/fooyin-install
+      QT_VERSION: '6.8.3'
+      VCPKG_DISABLE_METRICS: true
+      VCPKG_ROOT_DIR: C:/vcpkg
+      VCPKG_INSTALLED_DIR: C:/v
+
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Checkout fooyin
+        uses: actions/checkout@v7
+        with:
+          repository: fooyin/fooyin
+          ref: ${{ env.FOOYIN_REF }}
+          path: fooyin
+          submodules: recursive
+
+      # Make the codec dependencies explicit in the host's existing manifest.
+      # Both builds then use the same vcpkg installation and ABI.
+      - name: Add SpessaSynth codec dependencies
+        shell: pwsh
+        run: |
+          $manifest = Get-Content fooyin/vcpkg.json -Raw | ConvertFrom-Json
+          $manifest.dependencies += @('libvorbis', 'flac', 'zlib')
+          $manifest | ConvertTo-Json -Depth 20 | Set-Content fooyin/vcpkg.json
+
+      - name: Set up vcpkg
+        shell: pwsh
+        run: |
+          $vcpkgCommit = (Get-Content fooyin/vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+          git init $env:VCPKG_ROOT_DIR
+          if (-not (git -C $env:VCPKG_ROOT_DIR remote get-url origin 2>$null)) {
+            git -C $env:VCPKG_ROOT_DIR remote add origin https://github.com/microsoft/vcpkg.git
+          }
+          git -C $env:VCPKG_ROOT_DIR fetch --depth 1 origin $vcpkgCommit
+          git -C $env:VCPKG_ROOT_DIR checkout --detach FETCH_HEAD
+          & "$env:VCPKG_ROOT_DIR/bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Install CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          archives: qtbase qtsvg qttools
+          cache: true
+          arch: win64_msvc2022_64
+          install-deps: 'true'
+
+      - name: Set up MSVC environment
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: amd64
+
+      - name: Cache vcpkg
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.VCPKG_INSTALLED_DIR }}
+          key: windows-x64-midi-vcpkg-${{ hashFiles('fooyin/vcpkg.json', 'fooyin/vcpkg-configuration.json') }}
+
+      - name: Configure fooyin
+        shell: pwsh
+        run: |
+          cmake -S fooyin -B fooyin-build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="$env:FOOYIN_PREFIX" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT_DIR/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_INSTALLED_DIR="$env:VCPKG_INSTALLED_DIR" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DQt6_DIR="$env:QT_ROOT_DIR/lib/cmake/Qt6" `
+            -DBUILD_PCH=ON `
+            -DBUILD_TRANSLATIONS=OFF `
+            -DINSTALL_FHS=OFF `
+            -DINSTALL_HEADERS=ON `
+            -DPLUGIN_SELECTION=none
+
+      - name: Build fooyin
+        run: cmake --build fooyin-build
+
+      - name: Install fooyin
+        run: cmake --install fooyin-build
+
+      - name: Configure plugin
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$env:FOOYIN_PREFIX" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT_DIR/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_INSTALLED_DIR="$env:VCPKG_INSTALLED_DIR" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_MANIFEST_MODE=OFF `
+            -DQt6_DIR="$env:QT_ROOT_DIR/lib/cmake/Qt6" `
+            -DMIDI_USE_BUNDLED_SPESSASYNTH=ON `
+            -DMIDI_USE_BUNDLED_RTMIDI=ON `
+            -DMIDI_ENABLE_EXTERNAL=ON `
+            -DMIDI_ENABLE_NUKED_SC55=ON `
+            -DMIDI_BUILD_TESTS=OFF
+
+      - name: Build plugin
+        run: cmake --build build
+
+      - name: Verify static dependencies
+        shell: pwsh
+        run: |
+          $dependencies = & dumpbin /DEPENDENTS build/midiplugin/fyplugin_midiplugin.dll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $dependencies
+          if ($dependencies -match '(?i)(spessasynth|rtmidi).*\.dll') {
+            throw 'SpessaSynth or RtMidi is still a shared dependency'
+          }
+
+      - name: Package plugin
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package/licenses | Out-Null
+          Copy-Item build/midiplugin/fyplugin_midiplugin.dll package/
+          Copy-Item 3rdparty/spessasynth_core_c/LICENSE package/licenses/SpessaSynth.txt
+          Copy-Item 3rdparty/rtmidi/LICENSE package/licenses/RtMidi.txt
+          Copy-Item 3rdparty/Nuked-SC55/LICENSE package/licenses/Nuked-SC55.txt
+          $installed = "$env:VCPKG_INSTALLED_DIR/x64-windows"
+          # SpessaSynth is static, but its codecs use the host's dynamic triplet.
+          foreach ($pattern in @('*vorbis*.dll', '*ogg*.dll', '*FLAC*.dll', 'zlib*.dll')) {
+            $files = @(Get-ChildItem "$installed/bin/$pattern")
+            if ($files.Count -eq 0) { throw "Missing codec DLL: $pattern" }
+            $files | Copy-Item -Destination package/
+          }
+          foreach ($port in @('libvorbis', 'libogg', 'flac', 'zlib')) {
+            Copy-Item "$installed/share/$port/copyright" "package/licenses/$port.txt"
+          }
+          @(
+            'Built against fooyin 0.13.1 and Qt 6.8.3 (Windows x64, MSVC).'
+            'SpessaSynth and RtMidi are linked statically; Nuked-SC55 is included.'
+            'Install the plugin in the fooyin plugin directory.'
+            'Codec DLLs must be available to the Windows loader, e.g. beside fooyin.exe.'
+            'Keep compatible codec DLLs already supplied by fooyin.'
+            'Requires compatible fooyin/Qt and the MSVC runtime.'
+            'SoundFonts and ROMs are not included.'
+          ) | Set-Content package/BUILD.txt
+          Compress-Archive -Path package/* -DestinationPath fooyin-plugin-midi-windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: fooyin-plugin-midi-windows
+          path: fooyin-plugin-midi-windows-x64.zip
+          if-no-files-found: error
+
+  attach:
+    name: Attach to release
+    permissions:
+      contents: write
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    needs: [build, build-windows]
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: fooyin-plugin-midi-linux
+          path: ./artifacts
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: fooyin-plugin-midi-windows
+          path: ./artifacts
+
+      - name: Upload Linux artifact to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.event.release.tag_name }}
+          file: ./artifacts/fooyin-plugin-midi-linux-x64.tar.gz
+          overwrite: true
+
+      - name: Upload Windows artifact to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.event.release.tag_name }}
+          file: ./artifacts/fooyin-plugin-midi-windows-x64.zip
+          overwrite: true
