@@ -41,3 +41,8 @@ if(MIDI_ENABLE_EXTERNAL)
     target_link_libraries(midiplugin PRIVATE midi_rtmidi)
     target_compile_definitions(midiplugin PRIVATE MIDI_ENABLE_EXTERNAL)
 endif()
+
+# Keep bundled codec symbols private to the plugin on ELF platforms.
+if(MIDI_USE_BUNDLED_SPESSASYNTH AND MIDI_STATIC_CODEC_DIR AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(midiplugin PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
