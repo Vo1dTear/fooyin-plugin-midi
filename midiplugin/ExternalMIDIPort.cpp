@@ -9,6 +9,8 @@ namespace ExternalMIDI {
 namespace {
 #ifdef __linux__
 constexpr auto Api = RtMidi::LINUX_ALSA;
+#elif defined(_WIN32)
+constexpr auto Api = RtMidi::WINDOWS_MM;
 #else
 constexpr auto Api = RtMidi::UNSPECIFIED;
 #endif
@@ -33,6 +35,10 @@ std::vector<std::string> ports() {
 }
 
 ExternalMIDIPlayer::Sender open(const std::string& name) {
+    if(name.empty())
+        throw std::runtime_error("Select a MIDI output port in MIDI Input settings first");
+    if(!SupportsVirtualPort && name == VirtualPort)
+        throw std::runtime_error("Create a port in loopMIDI, then refresh and select it in MIDI Input settings");
     if(!output || name != selected) {
         if(output && output.use_count() > 1)
             throw std::runtime_error("Stop external MIDI playback before changing its output port");
@@ -48,6 +54,7 @@ ExternalMIDIPlayer::Sender open(const std::string& name) {
             }
             if(match < 0) throw std::runtime_error("Selected MIDI output is unavailable; open the target application and refresh the ports");
             next->openPort(unsigned(match), "Output");
+            if(!next->isPortOpen()) throw std::runtime_error("Could not open the selected MIDI output");
         }
         output = std::move(next);
         selected = name;

@@ -185,7 +185,7 @@ bool MIDIDecoder::enableExternalOutput() {
     if(!external) return false;
     try {
         if(external->enableOutput(ExternalMIDI::open(
-                m_settings.value(ExternalPortSetting, ExternalMIDI::VirtualPort).toString().toStdString())))
+                m_settings.value(ExternalPortSetting, ExternalMIDI::DefaultPort).toString().toStdString())))
             return true;
         std::string error;
         external->GetLastError(error);

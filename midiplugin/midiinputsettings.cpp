@@ -42,6 +42,9 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStyle>
+#include <QScrollArea>
+#include <QScreen>
+#include <QVBoxLayout>
 #include <QComboBox>
 
 using namespace Qt::StringLiterals;
@@ -120,7 +123,7 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     auto* soundfontPathLabel   = new QLabel(tr("Soundfont bank") + u":"_s, this);
     auto* soundfontGSPathLabel = new QLabel(tr("GS mode bank") + u":"_s, this);
     auto* soundfontHintLabel   = new QLabel(u"🛈 "_s
-        + tr("MIDI files require a SoundFont bank or banks to play. A separate bank may be chosen as an alternate default for GS MIDI files."),
+        + tr("Select a SoundFont bank. The separate GS bank is optional."),
         this);
     soundfontHintLabel->setWordWrap(true);
 
@@ -147,7 +150,10 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     auto* openPort = new QPushButton(tr("Open MIDI port"), this);
     auto* portStatus = new QLabel(this);
     portStatus->setWordWrap(true);
-    auto* externalHint = new QLabel(tr("Open the virtual output here, then select fooyin MIDI / Output as the MIDI input in Nuked-SC55. Fooyin controls master volume on GS-compatible devices such as Nuked-SC55. The external application controls audio output. Fooyin effects, gain, fades and audio conversion do not apply. One 16-channel MIDI port is supported."), this);
+    auto* externalHint = new QLabel(tr("Open the port, then select it in the external application. Fooyin controls volume on GS-compatible devices. Effects, fades and audio conversion are unavailable."), this);
+#ifdef _WIN32
+    externalHint->setText(tr("Create a port in loopMIDI, refresh this list and select that port here and in the external application. Keep loopMIDI running. Fooyin controls volume on GS-compatible devices; effects, fades and audio conversion are unavailable."));
+#endif
     externalHint->setWordWrap(true);
     externalLayout->addWidget(m_externalPort, 0, 0, 1, 2);
     externalLayout->addWidget(refreshPorts, 1, 0);
@@ -155,23 +161,29 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     externalLayout->addWidget(portStatus, 2, 0, 1, 2);
     externalLayout->addWidget(externalHint, 3, 0, 1, 2);
 #ifdef MIDI_ENABLE_EXTERNAL
-    const auto refresh = [this, portStatus] {
-        const auto selected = m_externalPort->currentIndex() < 0
-            ? m_settings.value(ExternalPortSetting, ExternalMIDI::VirtualPort).toString()
+    const auto refresh = [this, portStatus, openPort] {
+        auto selected = m_externalPort->currentIndex() < 0
+            ? m_settings.value(ExternalPortSetting, ExternalMIDI::DefaultPort).toString()
             : m_externalPort->currentData().toString();
+        if(!ExternalMIDI::SupportsVirtualPort && selected == QString::fromLatin1(ExternalMIDI::VirtualPort)) selected.clear();
         m_externalPort->clear();
-        m_externalPort->addItem(tr("Virtual output: fooyin MIDI / Output"), QString::fromLatin1(ExternalMIDI::VirtualPort));
+        if(ExternalMIDI::SupportsVirtualPort)
+            m_externalPort->addItem(tr("Virtual output: fooyin MIDI / Output"), QString::fromLatin1(ExternalMIDI::VirtualPort));
         portStatus->clear();
         try {
             for(const auto& name : ExternalMIDI::ports())
                 m_externalPort->addItem(QString::fromStdString(name), QString::fromStdString(name));
         } catch(const std::exception& e) { portStatus->setText(QString::fromUtf8(e.what())); }
         int index = m_externalPort->findData(selected);
-        if(index < 0) {
+        if(index < 0 && !selected.isEmpty()) {
             m_externalPort->addItem(tr("Unavailable: %1").arg(selected), selected);
             index = m_externalPort->count() - 1;
         }
+        if(index < 0 && selected.isEmpty() && m_externalPort->count()) index = 0;
         m_externalPort->setCurrentIndex(index);
+        openPort->setEnabled(index >= 0);
+        if(!m_externalPort->count() && portStatus->text().isEmpty())
+            portStatus->setText(tr("No MIDI outputs found. Start the destination or create a loopMIDI port on Windows, then refresh."));
     };
     connect(refreshPorts, &QPushButton::clicked, this, refresh);
     connect(openPort, &QPushButton::clicked, this, [this, portStatus] {
@@ -192,7 +204,7 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
         const auto path = QFileDialog::getExistingDirectory(this, tr("Select SC-55 ROM directory"), m_romLocation->text());
         if(!path.isEmpty()) m_romLocation->setText(path);
     });
-    auto* romHint = new QLabel(tr("Nuked-SC55 requires a complete ROM set for the selected model. Choose a folder containing one version. SoundFont banks and SpessaSynth effect settings do not apply."), this);
+    auto* romHint = new QLabel(tr("Select a folder with one complete ROM set matching the model. SoundFonts and SpessaSynth effects do not apply."), this);
     romHint->setWordWrap(true);
     row = 0;
     generalLayout->addWidget(new QLabel(tr("Sound engine"), this), row, 0);
@@ -253,8 +265,11 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     synthesisLayout->addWidget(voicesLabel, row, 0);
     synthesisLayout->addWidget(m_voiceCount, row++, 1, 1, 4);
 
-    auto* layout = new QGridLayout(this);
-    layout->setSizeConstraint(QLayout::SetFixedSize);
+    // Scroll the settings, not the dialog buttons, on smaller screens or
+    // with larger fonts. Let wrapped hints adapt to the available width.
+    auto* content = new QWidget(this);
+    auto* layout = new QGridLayout(content);
+    layout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
     row = 0;
     layout->addWidget(lengthGroup, row++, 0, 1, 4);
@@ -262,8 +277,20 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     layout->addWidget(nukedGroup, row++, 0, 1, 4);
     layout->addWidget(synthesisGroup, row++, 0, 1, 4);
     layout->addWidget(externalGroup, row++, 0, 1, 4);
-    layout->addWidget(buttons, row++, 0, 1, 4, Qt::AlignBottom);
+    layout->setRowStretch(row, 1);
     layout->setColumnStretch(2, 1);
+
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(content);
+    auto* dialogLayout = new QVBoxLayout(this);
+    dialogLayout->addWidget(scroll, 1);
+    dialogLayout->addWidget(buttons);
+
+    const QSize available = screen()->availableGeometry().size();
+    resize(QSize(640, 640).boundedTo(QSize(std::max(1, available.width() - 40),
+                                         std::max(1, available.height() - 80))));
 
     m_loopCount->setValue(m_settings.value(LoopCountSetting, DefaultLoopCount).toInt());
     m_fadeLength->setValue(m_settings.value(FadeLengthSetting, DefaultFadeLength).toInt());

@@ -58,7 +58,9 @@ ExternalMIDIController::ExternalMIDIController(const CorePluginContext& context,
     QTimer::singleShot(0, this, [this] {
         const FySettings settings;
         if(settings.value(EngineSetting, DefaultEngine).toInt() != ExternalEngine) return;
-        try { ExternalMIDI::open(settings.value(ExternalPortSetting, ExternalMIDI::VirtualPort).toString().toStdString()); }
+        const auto port = settings.value(ExternalPortSetting, ExternalMIDI::DefaultPort).toString();
+        if(port.isEmpty() || (!ExternalMIDI::SupportsVirtualPort && port == QString::fromLatin1(ExternalMIDI::VirtualPort))) return;
+        try { ExternalMIDI::open(port.toStdString()); }
         catch(const std::exception& e) { qWarning() << "External MIDI:" << e.what(); }
         if(player->playState() != Player::PlayState::Stopped && !decoder) loadTrack(player->currentTrack());
     });
