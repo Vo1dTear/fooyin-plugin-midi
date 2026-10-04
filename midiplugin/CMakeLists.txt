@@ -38,6 +38,6 @@ if(MIDI_ENABLE_EXTERNAL)
         ExternalMIDIPlayer.cpp ExternalMIDIPlayer.h
         ExternalMIDIPort.cpp ExternalMIDIPort.h
         ExternalMIDIController.cpp ExternalMIDIController.h)
-    target_link_libraries(midiplugin PRIVATE PkgConfig::RTMIDI)
+    target_link_libraries(midiplugin PRIVATE midi_rtmidi)
     target_compile_definitions(midiplugin PRIVATE MIDI_ENABLE_EXTERNAL)
 endif()

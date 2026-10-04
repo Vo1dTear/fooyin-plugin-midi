@@ -1,3 +1,9 @@
 [submodule "external/Nuked-SC55"]
 	path = 3rdparty/Nuked-SC55
 	url = https://github.com/jcmoyer/Nuked-SC55.git
+[submodule "3rdparty/spessasynth_core_c"]
+	path = 3rdparty/spessasynth_core_c
+	url = https://github.com/kode54/spessasynth_core_c.git
+[submodule "3rdparty/rtmidi"]
+	path = 3rdparty/rtmidi
+	url = https://github.com/thestk/rtmidi.git

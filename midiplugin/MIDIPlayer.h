@@ -12,7 +12,7 @@
 
 extern const uint8_t syx_reset_gm[6];
 extern const uint8_t syx_reset_gm2[];
-extern const uint8_t syx_reset_gs[];
+extern const uint8_t midi_plugin_syx_reset_gs[];
 extern const uint8_t syx_reset_xg[];
 
 bool syx_equal(const uint8_t *a, const uint8_t *b);

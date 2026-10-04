@@ -140,7 +140,7 @@ bool ExternalMIDIPlayer::startup() {
     initialized = true;
     // The target device belongs to this playback session. Restore GS defaults
     // before the file's own initialization messages (which may select GM/XG).
-    if(send) dispatchMidi(syx_reset_gs, 11, 0, sourcePort);
+    if(send) dispatchMidi(midi_plugin_syx_reset_gs, 11, 0, sourcePort);
     return initialized;
 }
 

@@ -7,7 +7,7 @@
 
 const uint8_t syx_reset_gm[] = { 0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7 };
 const uint8_t syx_reset_gm2[] = { 0xF0, 0x7E, 0x7F, 0x09, 0x03, 0xF7 };
-const uint8_t syx_reset_gs[] = { 0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7 };
+const uint8_t midi_plugin_syx_reset_gs[] = { 0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7 };
 const uint8_t syx_reset_xg[] = { 0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7 };
 
 static const uint8_t syx_gs_limit_bank_lsb[] = { 0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x41, 0x00, 0x03, 0x00, 0xF7 };
@@ -22,7 +22,7 @@ bool syx_equal(const uint8_t *a, const uint8_t *b) {
 
 bool syx_is_reset(const uint8_t *data) {
 	return syx_equal(data, &syx_reset_gm[0]) || syx_equal(data, &syx_reset_gm2[0]) ||
-	       syx_equal(data, &syx_reset_gs[0]) || syx_equal(data, &syx_reset_xg[0]);
+	       syx_equal(data, &midi_plugin_syx_reset_gs[0]) || syx_equal(data, &syx_reset_xg[0]);
 }
 
 bool syx_is_gs(const uint8_t *data, size_t size) {
@@ -476,7 +476,7 @@ void MIDIPlayer::dispatchFilterReset(size_t port, uint32_t sample_offset) {
 		case filter_default:
 			map_id = 4;
 		gs_path:
-			inject(make_sysex(syx_reset_gs, sizeof(syx_reset_gs)), base_time);
+			inject(make_sysex(midi_plugin_syx_reset_gs, sizeof(midi_plugin_syx_reset_gs)), base_time);
 			for(unsigned i = 0x41; i <= 0x49; ++i)
 				inject(gs_bank_lsb_sysex(i, map_id), base_time);
 			inject(gs_bank_lsb_sysex(0x40, map_id), base_time);

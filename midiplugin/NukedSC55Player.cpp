@@ -108,7 +108,7 @@ struct NukedSC55Player::Impl {
                 instance.midi.push_back(0);
             }
         }
-        instance.midi.insert(instance.midi.end(), syx_reset_gs, syx_reset_gs + 11);
+        instance.midi.insert(instance.midi.end(), midi_plugin_syx_reset_gs, midi_plugin_syx_reset_gs + 11);
         instance.emulator.SetSampleCallback(&Instance::sample, &instance);
         // Advance the firmware while discarding reset audio. Unlike booting,
         // this keeps the emulated device powered on between songs.
