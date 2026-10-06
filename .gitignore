@@ -48,6 +48,10 @@ fooyin.spec
 # Vim temporary files
 .*.swp
 
+# Python cache
+__pycache__/
+*.pyc
+
 # Directories
 # ---------------------
 

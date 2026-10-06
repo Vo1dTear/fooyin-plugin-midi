@@ -121,11 +121,6 @@ jobs:
         run: |
           python3 .github/scripts/package_licences.py --installed codec-install/x64-linux
           cp build/midiplugin/fyplugin_midiplugin.so package/
-          printf '%s\n' \
-            'Built against fooyin 0.13.1 on Ubuntu 24.04 (x86_64).' \
-            'SpessaSynth, RtMidi, FLAC, Vorbis, Ogg and zlib are static; Nuked-SC55 is included.' \
-            'Requires compatible fooyin/Qt, ALSA and system runtime libraries.' \
-            'SoundFonts and ROMs are not included.' > package/BUILD.txt
           tar -czf fooyin-plugin-midi-linux-x64.tar.gz -C package .
 
       - name: Package source snapshot
@@ -281,13 +276,6 @@ jobs:
           python .github/scripts/package_licences.py --installed codec-install/x64-windows-static-md
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item build/midiplugin/fyplugin_midiplugin.dll package/
-          @(
-            'Built against fooyin 0.13.1 and Qt 6.8.3 (Windows x64, MSVC).'
-            'SpessaSynth, RtMidi, FLAC, Vorbis, Ogg and zlib are static; Nuked-SC55 is included.'
-            'Install the plugin in the fooyin plugin directory.'
-            'Requires compatible fooyin/Qt and the MSVC runtime.'
-            'SoundFonts and ROMs are not included.'
-          ) | Set-Content package/BUILD.txt
           Compress-Archive -Path package/* -DestinationPath fooyin-plugin-midi-windows-x64.zip
 
       - name: Package source snapshot
