@@ -142,7 +142,7 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
     m_engine->addItem(u"Nuked-SC55"_s, NukedEngine);
 #endif
 #ifdef MIDI_ENABLE_EXTERNAL
-    m_engine->addItem(tr("External MIDI / Nuked-SC55 application"), ExternalEngine);
+    m_engine->addItem(tr("External MIDI"), ExternalEngine);
 #endif
     auto* externalGroup = new QGroupBox(tr("External MIDI application"), this);
     auto* externalLayout = new QGridLayout(externalGroup);
@@ -313,6 +313,7 @@ MIDIInputSettings::MIDIInputSettings(QWidget* parent)
         const bool external = m_engine->currentData().toInt() == ExternalEngine;
         const bool spessa = !nuked && !external;
         externalGroup->setVisible(external);
+        synthesisGroup->setVisible(!external);
         m_gain->setEnabled(!external);
         m_fadeLength->setEnabled(!external);
         m_releaseTail->setEnabled(external || m_fadeLength->value() == 0);
