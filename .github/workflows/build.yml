@@ -29,7 +29,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y \
-            curl zip unzip tar autoconf automake libtool \
+            python3 curl zip unzip tar autoconf automake libtool \
             build-essential \
             git \
             cmake \
@@ -81,6 +81,8 @@ jobs:
         run: cmake --install fooyin-build
 
       - name: Build static codecs
+        env:
+          VCPKG_BINARY_SOURCES: clear
         run: |
           git init codec-vcpkg
           git -C codec-vcpkg remote add origin https://github.com/microsoft/vcpkg.git
@@ -117,20 +119,27 @@ jobs:
 
       - name: Package plugin
         run: |
-          mkdir -p package/licenses
+          python3 .github/scripts/package_licences.py --installed codec-install/x64-linux
           cp build/midiplugin/fyplugin_midiplugin.so package/
-          cp 3rdparty/spessasynth_core_c/LICENSE package/licenses/SpessaSynth.txt
-          cp 3rdparty/rtmidi/LICENSE package/licenses/RtMidi.txt
-          cp 3rdparty/Nuked-SC55/LICENSE package/licenses/Nuked-SC55.txt
-          for port in libvorbis libogg libflac zlib; do
-            cp "codec-install/x64-linux/share/$port/copyright" "package/licenses/$port.txt"
-          done
           printf '%s\n' \
             'Built against fooyin 0.13.1 on Ubuntu 24.04 (x86_64).' \
             'SpessaSynth, RtMidi, FLAC, Vorbis, Ogg and zlib are static; Nuked-SC55 is included.' \
             'Requires compatible fooyin/Qt, ALSA and system runtime libraries.' \
             'SoundFonts and ROMs are not included.' > package/BUILD.txt
           tar -czf fooyin-plugin-midi-linux-x64.tar.gz -C package .
+
+      - name: Package source snapshot
+        run: |
+          python3 .github/scripts/package_sources.py --platform linux \
+            --vcpkg codec-vcpkg --installed codec-install/x64-linux \
+            --output source-linux.tar.gz
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v6
+        with:
+          name: midi-source-linux
+          path: source-linux.tar.gz
+          if-no-files-found: error
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
@@ -226,6 +235,8 @@ jobs:
         run: cmake --install fooyin-build
 
       - name: Build static codecs
+        env:
+          VCPKG_BINARY_SOURCES: clear
         shell: pwsh
         run: |
           & "$env:VCPKG_ROOT_DIR/vcpkg.exe" install --triplet x64-windows-static-md `
@@ -267,15 +278,9 @@ jobs:
       - name: Package plugin
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force package/licenses | Out-Null
+          python .github/scripts/package_licences.py --installed codec-install/x64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item build/midiplugin/fyplugin_midiplugin.dll package/
-          Copy-Item 3rdparty/spessasynth_core_c/LICENSE package/licenses/SpessaSynth.txt
-          Copy-Item 3rdparty/rtmidi/LICENSE package/licenses/RtMidi.txt
-          Copy-Item 3rdparty/Nuked-SC55/LICENSE package/licenses/Nuked-SC55.txt
-          $installed = "$env:GITHUB_WORKSPACE/codec-install/x64-windows-static-md"
-          foreach ($port in @('libvorbis', 'libogg', 'libflac', 'zlib')) {
-            Copy-Item "$installed/share/$port/copyright" "package/licenses/$port.txt"
-          }
           @(
             'Built against fooyin 0.13.1 and Qt 6.8.3 (Windows x64, MSVC).'
             'SpessaSynth, RtMidi, FLAC, Vorbis, Ogg and zlib are static; Nuked-SC55 is included.'
@@ -284,6 +289,21 @@ jobs:
             'SoundFonts and ROMs are not included.'
           ) | Set-Content package/BUILD.txt
           Compress-Archive -Path package/* -DestinationPath fooyin-plugin-midi-windows-x64.zip
+
+      - name: Package source snapshot
+        shell: pwsh
+        run: |
+          python .github/scripts/package_sources.py --platform windows `
+            --vcpkg "$env:VCPKG_ROOT_DIR" --installed codec-install/x64-windows-static-md `
+            --output source-windows.tar.gz
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v6
+        with:
+          name: midi-source-windows
+          path: source-windows.tar.gz
+          if-no-files-found: error
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
@@ -312,6 +332,19 @@ jobs:
           name: fooyin-plugin-midi-windows
           path: ./artifacts
 
+      - name: Download source snapshots
+        uses: actions/download-artifact@v7
+        with:
+          pattern: midi-source-*
+          merge-multiple: true
+          path: ./sources
+
+      - name: Assemble source package
+        run: |
+          tar -xzf sources/source-linux.tar.gz -C sources
+          tar -xzf sources/source-windows.tar.gz -C sources
+          tar -czf artifacts/fooyin-plugin-midi-source.tar.gz -C sources fooyin-plugin-midi-source
+
       - name: Upload Linux artifact to release
         uses: svenstaro/upload-release-action@v2
         with:
@@ -326,4 +359,12 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.event.release.tag_name }}
           file: ./artifacts/fooyin-plugin-midi-windows-x64.zip
+          overwrite: true
+
+      - name: Upload source package to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.event.release.tag_name }}
+          file: ./artifacts/fooyin-plugin-midi-source.tar.gz
           overwrite: true
