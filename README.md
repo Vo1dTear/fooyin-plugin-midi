@@ -13,7 +13,7 @@ The plugin is derived from [kode54's original fooyin plugin repository](https://
 * A C++ compiler with C++23 support (C++20 when Nuked-SC55 is disabled)
 * Qt and the fooyin development files
 * Ninja or Make
-* pkg-config and RtMidi development files for external MIDI output (on Arch: `pkgconf` and `rtmidi`)
+* For external MIDI with system RtMidi: pkg-config and RtMidi development files (on Arch: `pkgconf` and `rtmidi`). See below for bundled RtMidi.
 
 ## Dependencies
 
@@ -62,6 +62,33 @@ The build generates:
 ```text
 build/midiplugin/fyplugin_midiplugin.so
 ```
+
+### Bundled libraries
+
+To include SpessaSynth and RtMidi statically, use CMake 3.21 or newer:
+
+```sh
+git submodule update --init --recursive
+cmake -S . -B build-bundled -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMIDI_USE_BUNDLED_SPESSASYNTH=ON \
+    -DMIDI_ENABLE_EXTERNAL=ON \
+    -DMIDI_USE_BUNDLED_RTMIDI=ON
+cmake --build build-bundled -j4
+```
+
+The plugin is generated at `build-bundled/midiplugin/fyplugin_midiplugin.so`.
+Both bundled options default to `OFF`, preserving system libraries for AUR builds.
+
+On Arch Linux, this build requires `libvorbis`, `flac`, `zlib`, `pkgconf` and
+`alsa-lib`. Codecs remain shared unless you set
+`-DMIDI_STATIC_CODEC_DIR=/path/to/static-codecs` to a prefix containing static
+libraries and headers (PIC on Linux, `/MD` on Windows). GitHub workflow builds
+include these codecs statically too.
+
+Compatible fooyin, Qt and system runtimes are still required. SoundFonts and ROMs
+are not included. Use `-DMIDI_ENABLE_EXTERNAL=OFF` if you do not need external MIDI;
+RtMidi is then unnecessary.
 
 ## Installation
 
@@ -115,23 +142,27 @@ The first playback may take a moment while the emulator starts. Gain, loop count
 and fade are supported, as is audio conversion through fooyin. SoundFont banks
 and SpessaSynth-specific controls do not apply.
 
-## External Nuked-SC55 application
+## External MIDI
 
-This mode sends MIDI to a separate Nuked-SC55 application, which you must launch
-and configure yourself. On Linux, it requires the ALSA MIDI sequencer (`/dev/snd/seq`).
+This mode sends MIDI to a separate application, such as Nuked-SC55, which you
+must launch and configure yourself.
 
-1. In **MIDI Input** settings, select **External MIDI / Nuked-SC55 application**.
+On Linux, the ALSA MIDI sequencer (`/dev/snd/seq`) is required:
+
+1. In **MIDI Input** settings, select **External MIDI**.
 2. Choose **Virtual output: fooyin MIDI / Output**, click **Open MIDI port**, and apply.
-3. Launch Nuked-SC55, configure its ROMs and audio output, and select **fooyin MIDI / Output** as its MIDI input (`--port`; see the application's `--help`).
+3. Launch the external application, configure its sounds and audio output, and select **fooyin MIDI / Output** as its MIDI input.
 4. Start playback in fooyin.
 
 For an existing MIDI destination, use **Refresh ports** and select it instead.
-Stop playback before changing the port. Only one 16-channel MIDI port is supported.
+On Windows, create a port in loopMIDI, keep it running, and select that port in
+both fooyin and the external application. Stop playback before changing ports.
+Only one 16-channel MIDI port is supported.
 
-Use fooyin to control Nuked-SC55's volume and mute. Configure audio output and
-effects in Nuked-SC55; fooyin's DSP, gain and fades do not apply.
-For audio conversion, select SpessaSynth or the internal Nuked-SC55 engine;
-external MIDI mode produces silent files.
+Fooyin's volume and mute controls require a destination supporting GS master
+volume. Configure audio output and effects in the external application;
+fooyin's DSP, gain and fades do not apply. For audio conversion, select
+SpessaSynth or the internal Nuked-SC55 engine; external MIDI produces silent files.
 
 ## Tests
 
