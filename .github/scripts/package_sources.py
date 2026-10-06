@@ -10,14 +10,36 @@ import tempfile
 PORTS = ('libflac', 'libvorbis', 'libogg', 'zlib')
 
 
+def git_command(repo, *args):
+    # Container checkouts may belong to the runner's host user. Trust only
+    # this repository for this invocation, without changing global Git config.
+    path = Path(repo).resolve().as_posix()
+    return ['git', '-c', f'safe.directory={path}', '-C', path, *args]
+
+
 def git(repo, *args):
-    return subprocess.check_output(['git', '-C', str(repo), *args])
+    return subprocess.check_output(git_command(repo, *args))
+
+
+def submodule_revisions(repo, prefix=''):
+    revisions = {}
+    if (repo / '.gitmodules').exists():
+        paths = git(repo, 'config', '--file', '.gitmodules', '--get-regexp', r'^submodule\..*\.path$')
+        for line in paths.decode().splitlines():
+            path = line.split(None, 1)[1]
+            child = repo / path
+            if not (child / '.git').exists():
+                raise RuntimeError(f'Uninitialized submodule: {child}')
+            name = prefix + path
+            revisions[name] = git(child, 'rev-parse', 'HEAD').decode().strip()
+            revisions.update(submodule_revisions(child, name + '/'))
+    return revisions
 
 
 def archive_repo(repo, destination):
     destination.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryFile() as stream:
-        subprocess.run(['git', '-C', str(repo), 'archive', 'HEAD'], stdout=stream, check=True)
+        subprocess.run(git_command(repo, 'archive', 'HEAD'), stdout=stream, check=True)
         stream.seek(0)
         with tarfile.open(fileobj=stream) as archive:
             archive.extractall(destination, filter='data')
@@ -63,7 +85,7 @@ def main():
             'plugin': git(repo, 'rev-parse', 'HEAD').decode().strip(),
             'fooyin': git(repo / 'fooyin', 'rev-parse', 'HEAD').decode().strip(),
             'vcpkg': baseline,
-            'submodules': git(repo, 'submodule', 'status', '--recursive').decode(),
+            'submodules': submodule_revisions(repo),
         }
         (deps / 'revisions.json').write_text(json.dumps(revisions, indent=2) + '\n')
         with tarfile.open(args.output, 'w:gz') as archive:
