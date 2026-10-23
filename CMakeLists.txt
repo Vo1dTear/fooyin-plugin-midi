@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     midiinput
-    VERSION 0.1.1
+    VERSION 0.1.2
     DESCRIPTION "MIDI plugin for fooyin, maintained by Vo1dTear"
     HOMEPAGE_URL "https://github.com/Vo1dTear/fooyin-plugin-midi"
     LANGUAGES C CXX

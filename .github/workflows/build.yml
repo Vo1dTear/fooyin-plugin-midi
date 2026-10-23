@@ -21,7 +21,7 @@ jobs:
     container: ubuntu:24.04
 
     env:
-      FOOYIN_REF: 9f6e9364b9d1cdcccecf598db08b84b3f701e1b0 # fooyin v0.13.1
+      FOOYIN_REF: v0.14.0
       FOOYIN_PREFIX: ${{ github.workspace }}/fooyin-install
 
     steps:
@@ -148,7 +148,7 @@ jobs:
     runs-on: windows-latest
 
     env:
-      FOOYIN_REF: 9f6e9364b9d1cdcccecf598db08b84b3f701e1b0 # fooyin v0.13.1
+      FOOYIN_REF: v0.14.0
       FOOYIN_PREFIX: ${{ github.workspace }}/fooyin-install
       QT_VERSION: '6.8.3'
       VCPKG_DISABLE_METRICS: true
