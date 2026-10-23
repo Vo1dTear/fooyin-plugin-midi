@@ -46,6 +46,7 @@ jobs:
             libavutil-dev \
             libswresample-dev \
             libicu-dev \
+            libarchive-dev \
             libtag1-dev \
             libvorbis-dev \
             libflac-dev \
