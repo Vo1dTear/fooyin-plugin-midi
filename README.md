@@ -33,13 +33,10 @@ Clone the repository and configure a release build:
 ```sh
 git clone --recurse-submodules https://github.com/Vo1dTear/fooyin-plugin-midi.git
 cd fooyin-plugin-midi
-mkdir -p build
-cd build
-cmake -G Ninja \
+cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr \
-    ..
-cmake --build .
+    -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
 ```
 
 Internal Nuked-SC55 and external MIDI support are enabled by default. To disable
@@ -108,10 +105,11 @@ paru -S fooyin-plugin-midi-git
 
 ### From source
 
-After building the plugin, install it system-wide using CMake:
+Run the following commands from the repository root. After building the plugin,
+install it system-wide using CMake:
 
 ```sh
-sudo cmake --install .
+sudo cmake --install build
 ```
 
 With the `/usr` installation prefix shown in the build instructions, the plugin is installed to:
@@ -124,7 +122,7 @@ For a local user installation, copy the generated plugin to fooyin's user plugin
 
 ```sh
 mkdir -p ~/.local/lib/fooyin/plugins
-cp midiplugin/fyplugin_midiplugin.so ~/.local/lib/fooyin/plugins/
+cp build/midiplugin/fyplugin_midiplugin.so ~/.local/lib/fooyin/plugins/
 ```
 
 The exact plugin directory can vary by fooyin installation. Use the system-wide path configured by fooyin when installing through CMake.
@@ -212,7 +210,7 @@ Original MIDI plugin by Christopher Snowhill (kode54).
 
 Modifications by Vo1dTear, 2026.
 
-This project is distributed under the GNU General Public License, version 3 or later. See the license notices in the source files and `midiplugin/midiinput.json`.
+This project is distributed under the GNU General Public License, version 3 or later. See the license notices in the source files and `midiplugin/midiplugin.json.in`.
 
 The plugin uses [spessasynth_core_c](https://github.com/kode54/spessasynth_core_c), which is distributed under the Apache-2.0 license. Its license terms apply to that dependency.
 

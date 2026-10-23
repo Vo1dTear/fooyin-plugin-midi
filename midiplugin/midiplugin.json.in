@@ -1,6 +1,6 @@
 {
     "Name" : "MIDI Input",
-    "Version" : "0.1.1",
+    "Version" : "@PROJECT_VERSION@",
     "Author" : "kode54",
     "Copyright" : "Copyright 2025, Christopher Snowhill <kode54@gmail.com>\nModifications Copyright 2026, Vo1dTear <vo1dtear.01@gmail.com>",
     "License" : [ "This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.",
